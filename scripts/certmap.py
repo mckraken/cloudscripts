@@ -11,7 +11,6 @@
 #
 
 import os
-# import sys
 import json
 import requests
 import argparse
@@ -33,6 +32,14 @@ def process_args():
     parser.add_argument(
         '--apikey', metavar="API_KEY",
         help='The username for the account (or set the OS_PASSWORD '
+        'environment variable).')
+    parser.add_argument(
+        '--region', metavar="REGION",
+        help='The region for the loadbalancer (or set the OS_REGION_NAME '
+        'environment variable).')
+    parser.add_argument(
+        '--ddi', metavar="TENANT_ID",
+        help='The account number for the account (or set the OS_TENANT_ID '
         'environment variable).')
     parser.add_argument(
         '--key', metavar="PRIVATE-KEY-FILE",
