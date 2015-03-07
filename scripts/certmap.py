@@ -10,6 +10,32 @@
 #
 #
 
+'''
+Create or add a certificate mapping for a cloud load balancer.
+
+positional arguments:
+    LB-ID                 The id of the load balancer.
+    DOMAIN                The domain or hostname of the certificate.
+
+optional arguments:
+    -h, --help            show this help message and exit
+    --username USERNAME   The username for the account (or set the OS_USERNAME
+                          environment variable)
+    --apikey API_KEY      The username for the account (or set the OS_PASSWORD
+                          environment variable).
+    --region REGION       The region for the loadbalancer (or set the
+                          OS_REGION_NAME environment variable).
+    --ddi TENANT_ID       The account number for the account (or set the
+                          OS_TENANT_ID environment variable).
+    --key PRIVATE-KEY-FILE
+                          The filename containing the private key.
+    --crt CERTIFICATE-FILE
+                          The filename containing the certificate.
+    --cacrt INTERMEDIATE-CERTIFICATE-FILE
+                          The filename containing the intermediate
+                                                                                                                            certificate(s).
+'''
+
 import os
 import json
 import requests
