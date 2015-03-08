@@ -40,6 +40,7 @@ import os
 import json
 import requests
 import argparse
+import sys
 
 
 def process_args():
@@ -79,11 +80,20 @@ def process_args():
     return parser.parse_args()
 
 
-
 def read_cert_file(f):
     with open(f, 'r') as infile:
         return infile.read()
 
+
+def check_arg_or_env(arg, env):
+    if arg:
+        return arg
+    elif os.getenv(env):
+        return os.getenv(env)
+    else:
+        print "You need use a flag or use an Environment variable."
+        print "No setting for {0} was found.".format(env)
+        sys.exit(1)
 
 
 def auth_w_env():
@@ -108,6 +118,14 @@ def auth_w_env():
 
 
 args = process_args()
+
+print args
+
+username = check_arg_or_env(args.username,"OS_USERNAME")
+if not username:
+    print "not found"
+else:
+    print "username: ", username
 
 token = auth_w_env()
 
