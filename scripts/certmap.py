@@ -33,7 +33,7 @@ optional arguments:
                           The filename containing the certificate.
     --cacrt INTERMEDIATE-CERTIFICATE-FILE
                           The filename containing the intermediate
-                                                                                                                            certificate(s).
+                          certificate(s).
 '''
 
 import os
@@ -96,14 +96,14 @@ def check_arg_or_env(arg, env):
         sys.exit(1)
 
 
-def auth_w_env():
+def get_token(username, apikey):
     url = "https://identity.api.rackspacecloud.com/v2.0/tokens"
     headers = {'content-type': 'application/json'}
     payload = {
         "auth": {
             "RAX-KSKEY:apiKeyCredentials": {
-                "username": os.getenv('OS_USERNAME'),
-                "apiKey": os.getenv('OS_PASSWORD')
+                "username": username,
+                "apiKey": apikey
                 }
             }
         }
@@ -119,20 +119,20 @@ def auth_w_env():
 
 args = process_args()
 
-print args
+# print args
 
-username = check_arg_or_env(args.username,"OS_USERNAME")
-if not username:
-    print "not found"
-else:
-    print "username: ", username
+username = check_arg_or_env(args.username, "OS_USERNAME")
+apikey = check_arg_or_env(args.apikey, "OS_PASSWORD")
 
-token = auth_w_env()
+token = get_token(username, apikey)
 
-ddi = os.getenv('OS_TENANT_ID')
-reg = "iad"
-endp = "https://" + reg + ".loadbalancers.api.rackspacecloud.com/"
-lburl = "v1.0/" + ddi + "/loadbalancers/" + args.lbid + "/ssltermination/certificatemappings"
+ddi = check_arg_or_env(args.ddi, "OS_TENANT_ID")
+reg = check_arg_or_env(args.region, "OS_REGION_NAME")
+endp = "https://" + reg +\
+       ".loadbalancers.api.rackspacecloud.com/"
+lburl = "v1.0/" + ddi +\
+        "/loadbalancers/" + args.lbid +\
+        "/ssltermination/certificatemappings"
 
 url = endp + lburl
 
@@ -158,6 +158,6 @@ crtadd = requests.post(url, headers=hdrs, data=jdata)
 print crtadd.text
 print crtadd.status_code
 
-crtlst = requests.get(url,headers=hdrs)
+crtlst = requests.get(url, headers=hdrs)
 
 print json.dumps(crtlst.json(), sort_keys=True, indent=4, separators=(',', ': '))
