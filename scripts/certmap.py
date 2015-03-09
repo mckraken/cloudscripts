@@ -41,6 +41,7 @@ import json
 import requests
 import argparse
 import sys
+import pyrax
 
 
 def process_args():
@@ -61,13 +62,17 @@ def process_args():
         help='The username for the account (or set the OS_PASSWORD '
         'environment variable).')
     parser.add_argument(
-        '--region', metavar="REGION",
+        '--region', metavar="REGION", dest="reg", type=str.lower,
+        choices=['iad', 'dfw', 'ord', 'hkg', 'syd', 'lon'],
         help='The region for the loadbalancer (or set the OS_REGION_NAME '
         'environment variable).')
     parser.add_argument(
         '--ddi', metavar="TENANT_ID",
         help='The account number for the account (or set the OS_TENANT_ID '
         'environment variable).')
+    parser.add_argument(
+        '--ssl', action='store_true',
+        help='enable SSL Termination and set this as default certificate.')
     parser.add_argument(
         '--key', metavar="PRIVATE-KEY-FILE",
         help='The filename containing the private key. ')
@@ -121,6 +126,10 @@ def get_token(username, apikey):
     return req["access"]["token"]["id"]
 
 
+def check_ssl_term():
+    pass
+
+
 args = process_args()
 
 # print args
@@ -131,19 +140,48 @@ apikey = check_arg_or_env(args.apikey, "OS_PASSWORD")
 token = get_token(username, apikey)
 
 ddi = check_arg_or_env(args.ddi, "OS_TENANT_ID")
-reg = check_arg_or_env(args.region, "OS_REGION_NAME")
+reg = check_arg_or_env(args.reg, "OS_REGION_NAME")
 endp = "https://" + reg +\
        ".loadbalancers.api.rackspacecloud.com/"
-lburl = "v1.0/" + ddi +\
-        "/loadbalancers/" + args.lbid +\
-        "/ssltermination/certificatemappings"
-
-url = endp + lburl
+lburl = endp + "v1.0/" + ddi +\
+        "/loadbalancers/" + args.lbid
+lbsslurl = lburl + "/ssltermination"
+lbcmapurl = lbsslurl + "/certificatemappings"
 
 hdrs = dict()
 hdrs['Content-Type'] = 'application/json'
 hdrs['X-Auth-Token'] = token
-# jhdrs = json.dumps(hdrs)  # json of headers isn't needed
+
+pyrax.set_credentials(username, apikey)
+pyrax.set_setting("region", reg)
+clb = pyrax.cloud_loadbalancers
+
+try:
+    mylb = clb.get(args.lbid)
+except pyrax.exc.NotFound:
+    print
+    print "Error:",
+    print "No load balancer was found with that ID in this region/account."
+    print
+    sys.exit(1)
+
+# url = endp + lburl
+sslterm = requests.get(lbsslurl, headers=hdrs)
+if (sslterm.status_code != 200) and (not args.ssl):
+    print
+    print sslterm.status_code
+    print sslterm.json()["message"]
+    print "Please rerun with --ssl flag to enable SSL termination and "
+    print "set this certificate as the main, default certificate on "
+    print "this load balancer."
+    print
+    sys.exit(1)
+elif (sslterm.status_code == 200) and (args.ssl):
+    print
+    print "Error:  This load balancer already has SSL termination",
+    print "and you passed the --ssl flag to enable it."
+    print
+    sys.exit(1)
 
 cmap = dict()
 data = dict()
@@ -157,12 +195,12 @@ data['certificateMapping'] = cmap
 
 jdata = json.dumps(data)
 
-crtadd = requests.post(url, headers=hdrs, data=jdata)
+crtadd = requests.post(lbcmapurl, headers=hdrs, data=jdata)
 
 print crtadd.text
 print crtadd.status_code
 
-crtlst = requests.get(url, headers=hdrs)
+crtlst = requests.get(lbcmapurl, headers=hdrs)
 
 print json.dumps(crtlst.json(),
                  sort_keys=True,
