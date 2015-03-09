@@ -81,8 +81,12 @@ def process_args():
 
 
 def read_cert_file(f):
-    with open(f, 'r') as infile:
-        return infile.read()
+    try:
+        with open(f, 'r') as infile:
+            return infile.read()
+    except IOError:
+        print "Unable to open file {0}".format(f)
+        sys.exit(1)
 
 
 def check_arg_or_env(arg, env):
@@ -139,7 +143,7 @@ url = endp + lburl
 hdrs = dict()
 hdrs['Content-Type'] = 'application/json'
 hdrs['X-Auth-Token'] = token
-jhdrs = json.dumps(hdrs)
+# jhdrs = json.dumps(hdrs)  # json of headers isn't needed
 
 cmap = dict()
 data = dict()
@@ -160,4 +164,7 @@ print crtadd.status_code
 
 crtlst = requests.get(url, headers=hdrs)
 
-print json.dumps(crtlst.json(), sort_keys=True, indent=4, separators=(',', ': '))
+print json.dumps(crtlst.json(),
+                 sort_keys=True,
+                 indent=4,
+                 separators=(',', ': '))
