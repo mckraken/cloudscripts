@@ -25,8 +25,6 @@ optional arguments:
                           environment variable).
     --region REGION       The region for the loadbalancer (or set the
                           OS_REGION_NAME environment variable).
-    --ddi TENANT_ID       The account number for the account (or set the
-                          OS_TENANT_ID environment variable).
     --key PRIVATE-KEY-FILE
                           The filename containing the private key.
     --crt CERTIFICATE-FILE
@@ -41,7 +39,6 @@ import json
 import requests
 import argparse
 import sys
-import pyrax
 
 
 def process_args():
@@ -62,13 +59,9 @@ def process_args():
         help='The username for the account (or set the OS_PASSWORD '
         'environment variable).')
     parser.add_argument(
-        '--region', metavar="REGION", dest="reg", type=str.lower,
+        '--region', metavar="REGION", dest="region", type=str.lower,
         choices=['iad', 'dfw', 'ord', 'hkg', 'syd', 'lon'],
         help='The region for the loadbalancer (or set the OS_REGION_NAME '
-        'environment variable).')
-    parser.add_argument(
-        '--ddi', metavar="TENANT_ID",
-        help='The account number for the account (or set the OS_TENANT_ID '
         'environment variable).')
     parser.add_argument(
         '--ssl', action='store_true',
@@ -94,18 +87,33 @@ def read_cert_file(f):
         sys.exit(1)
 
 
-def check_arg_or_env(arg, env):
-    if arg:
-        return arg
+def check_arg_or_env(item, env):
+    import ConfigParser
+    if getattr(args, item) is not None:
+        # print "args", item, getattr(args, item)
+        return getattr(args, item)
     elif os.getenv(env):
+        # print "env", item, os.getenv(env)
         return os.getenv(env)
+    elif os.path.isfile(os.path.expanduser("~/.raxcreds")):
+        config = ConfigParser.RawConfigParser()
+        config.read(os.path.expanduser("~/.raxcreds"))
+        try:
+            # print "cfg", item, config.get('raxcreds', item)
+            return config.get('raxcreds', item)
+        except ConfigParser.NoOptionError:
+            print "You need use a flag, environment variable,",
+            print "or field in ~/.raxcreds."
+            print "Error: No setting for '{0}' was found.".format(item)
+            sys.exit(1)
     else:
-        print "You need use a flag or use an Environment variable."
-        print "No setting for {0} was found.".format(env)
+        print "You need use a flag, environment variable,",
+        print "or field in ~/.raxcreds."
+        print "Error: No setting for '{0}' was found.".format(item)
         sys.exit(1)
 
 
-def get_token(username, apikey):
+def get_servicecat(username, apikey):
     url = "https://identity.api.rackspacecloud.com/v2.0/tokens"
     headers = {'content-type': 'application/json'}
     payload = {
@@ -117,13 +125,12 @@ def get_token(username, apikey):
             }
         }
 
-    req = json.loads(requests.post(url,
-                                   data=json.dumps(payload),
-                                   headers=headers
-                                   ).content
-                     )
+    jservicecat = requests.post(url,
+                                data=json.dumps(payload),
+                                headers=headers
+                                ).content
 
-    return req["access"]["token"]["id"]
+    return json.loads(jservicecat)
 
 
 def check_ssl_term():
@@ -134,43 +141,38 @@ args = process_args()
 
 # print args
 
-username = check_arg_or_env(args.username, "OS_USERNAME")
-apikey = check_arg_or_env(args.apikey, "OS_PASSWORD")
+# username = check_arg_or_env(args.username, "OS_USERNAME")
+# apikey = check_arg_or_env(args.apikey, "OS_PASSWORD")
+# region = check_arg_or_env(args.region, "OS_REGION_NAME")
 
-token = get_token(username, apikey)
+username = check_arg_or_env("username", "OS_USERNAME")
+apikey = check_arg_or_env("apikey", "OS_PASSWORD")
+region = check_arg_or_env("region", "OS_REGION_NAME")
 
-ddi = check_arg_or_env(args.ddi, "OS_TENANT_ID")
-reg = check_arg_or_env(args.reg, "OS_REGION_NAME")
-endp = "https://" + reg +\
-       ".loadbalancers.api.rackspacecloud.com/"
-lburl = endp + "v1.0/" + ddi +\
-        "/loadbalancers/" + args.lbid
-lbsslurl = lburl + "/ssltermination"
-lbcmapurl = lbsslurl + "/certificatemappings"
+servicecat = get_servicecat(username, apikey)
+
+mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
+           if cat["type"] == "rax:load-balancer"][0]
+
+token = servicecat["access"]["token"]["id"]
+tenant_id = servicecat["access"]["token"]["tenant"]["id"]
+
+lburlbase = [endp["publicURL"] for endp in mylbcat["endpoints"]
+             if endp["region"].lower() == region][0]
+
+lburl = '/'.join([lburlbase, "loadbalancers", args.lbid])
+lbsslurl = '/'.join([lburl, "ssltermination"])
+lbcmapurl = '/'.join([lbsslurl, "certificatemappings"])
 
 hdrs = dict()
 hdrs['Content-Type'] = 'application/json'
 hdrs['X-Auth-Token'] = token
 
-pyrax.set_credentials(username, apikey)
-pyrax.set_setting("region", reg)
-clb = pyrax.cloud_loadbalancers
-
-try:
-    mylb = clb.get(args.lbid)
-except pyrax.exc.NotFound:
-    print
-    print "Error:",
-    print "No load balancer was found with that ID in this region/account."
-    print
-    sys.exit(1)
-
-# url = endp + lburl
 sslterm = requests.get(lbsslurl, headers=hdrs)
 if (sslterm.status_code != 200) and (not args.ssl):
     print
-    print sslterm.status_code
-    print sslterm.json()["message"]
+    # print "Status: ", sslterm.status_code
+    print "Error: ", sslterm.json()["message"]
     print "Please rerun with --ssl flag to enable SSL termination and "
     print "set this certificate as the main, default certificate on "
     print "this load balancer."
@@ -195,14 +197,14 @@ data['certificateMapping'] = cmap
 
 jdata = json.dumps(data)
 
-crtadd = requests.post(lbcmapurl, headers=hdrs, data=jdata)
+# crtadd = requests.post(lbcmapurl, headers=hdrs, data=jdata)
 
-print crtadd.text
-print crtadd.status_code
+# print crtadd.text
+# print crtadd.status_code
 
-crtlst = requests.get(lbcmapurl, headers=hdrs)
+# crtlst = requests.get(lbcmapurl, headers=hdrs)
 
-print json.dumps(crtlst.json(),
-                 sort_keys=True,
-                 indent=4,
-                 separators=(',', ': '))
+# print json.dumps(crtlst.json(),
+#                  sort_keys=True,
+#                  indent=4,
+#                  separators=(',', ': '))
