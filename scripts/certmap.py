@@ -119,6 +119,19 @@ def add_map(cmap_url, headers='', hostname='', certificates={}):
     print crtadd.status_code
 
 
+def upd_map(cmap_url, headers='', hostname='', certificates={}):
+    data = dict()
+    certificates['hostName'] = hostname
+    data['certificateMapping'] = certificates
+
+    jdata = json.dumps(data)
+
+    crtadd = requests.put(cmap_url, headers=headers, data=jdata)
+
+    print crtadd.text
+    print crtadd.status_code
+
+
 def del_maps(cmap_url, id_lst, headers=''):
     for cmap_id in id_lst:
         cmap_delete_url = '/'.join([cmap_url, cmap_id])
@@ -162,14 +175,10 @@ def process_args():
         help='The id of the load balancer.')
     subparser_add.add_argument(
         'dom', metavar="DOMAIN",
-        help='The domain or hostname of the certificate.'
-        'environment variable).')
+        help='The domain or hostname of the certificate.')
     subparser_add.add_argument(
         '--ssl', action='store_true',
         help='enable SSL Termination and set this as default certificate.')
-    # subparser_add.add_argument(
-    #     '--sslrepl', action='store_true',
-    #     help='Replace the main SSL certificates with those provided.')
     subparser_add.add_argument(
         '--key', metavar="PRIVATE-KEY-FILE", required=True,
         help='The filename containing the private key. ')
@@ -177,6 +186,27 @@ def process_args():
         '--crt', metavar="CERTIFICATE-FILE", required=True,
         help='The filename containing the certificate. ')
     subparser_add.add_argument(
+        '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
+        help='The filename containing the intermediate certificate(s).')
+
+    subparser_upd = subparser.add_parser('update',
+        help='Update the certificate mapping')
+    subparser_upd.add_argument(
+        'lbid', metavar="LB-ID",
+        help='The id of the load balancer.')
+    subparser_upd.add_argument(
+        'dom', metavar="DOMAIN",
+        help='The domain or hostname of the certificate.')
+    subparser_upd.add_argument(
+        '--ssl', action='store_true',
+        help='Update the default SSL certificate on the load balancer.')
+    subparser_upd.add_argument(
+        '--key', metavar="PRIVATE-KEY-FILE", required=True,
+        help='The filename containing the private key. ')
+    subparser_upd.add_argument(
+        '--crt', metavar="CERTIFICATE-FILE", required=True,
+        help='The filename containing the certificate. ')
+    subparser_upd.add_argument(
         '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
         help='The filename containing the intermediate certificate(s).')
 
@@ -201,14 +231,14 @@ def read_cert_file(f):
         sys.exit(1)
 
 
-def check_arg_or_env(item, env):
+def check_arg_or_env(item, aitem, eitem):
     import ConfigParser
-    if getattr(args, item) is not None:
+    if aitem is not None:
         # print "args", item, getattr(args, item)
-        return getattr(args, item)
-    elif os.getenv(env):
-        # print "env", item, os.getenv(env)
-        return os.getenv(env)
+        return aitem
+    elif os.getenv(eitem):
+        # print "env", item, os.getenv(eitem)
+        return os.getenv(eitem)
     elif os.path.isfile(os.path.expanduser("~/.raxcreds")):
         config = ConfigParser.RawConfigParser()
         config.read(os.path.expanduser("~/.raxcreds"))
@@ -287,74 +317,78 @@ def enumerate_cert_domains(ip, port='443', servername=''):
             return certdom
 
 
-args = process_args()
+if __name__ == "__main__":
+    args = process_args()
 
-print args
+    print args
 
-#
-# Set up all the variables
-#
-# Authentication variables:
-#
-username = check_arg_or_env("username", "OS_USERNAME")
-apikey = check_arg_or_env("apikey", "OS_PASSWORD")
-#
-# region of the load balancer is needed
-#
-region = check_arg_or_env("region", "OS_REGION_NAME")
-#
-# Get the full service catalog from the API
-#
-servicecat = get_servicecat(username, apikey)
-#
-# Get the needed authentication token and tenant_id from the service catalog
-#
-token = servicecat["access"]["token"]["id"]
-tenant_id = servicecat["access"]["token"]["tenant"]["id"]
-#
-# Get the load balancer sub-catalog from the full service catalog
-#
-mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
-           if cat["type"] == "rax:load-balancer"][0]
-#
-# Get the base url for the load balancer API and build the needed other urls
-#
-lburlbase = [endp["publicURL"] for endp in mylbcat["endpoints"]
-             if endp["region"].lower() == region][0]
-lburl = '/'.join([lburlbase, "loadbalancers", args.lbid])
-lburl_ssl = '/'.join([lburl, "ssltermination"])
-lburl_cmap = '/'.join([lburl_ssl, "certificatemappings"])
-#
-# Build the HTTP headers dictionary needed for the API calls
-#
-hdrs = dict()
-hdrs['Content-Type'] = 'application/json'
-hdrs['X-Auth-Token'] = token
-#
-# Call the API and build dictionaries of the resulting calls.
-# The base LB dictionary, the SSL LB dictionary, and the
-# Certificate Mapping LB dictionary
-#
-lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
-lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
-lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
+    #
+    # Set up all the variables
+    #
+    # Authentication variables:
+    #
+    username = check_arg_or_env("username", args.username, "OS_USERNAME")
+    apikey = check_arg_or_env("apikey", args.apikey, "OS_PASSWORD")
+    #
+    # region of the load balancer is needed
+    #
+    region = check_arg_or_env("region", args.region, "OS_REGION_NAME")
+    #
+    # Get the full service catalog from the API
+    #
+    servicecat = get_servicecat(username, apikey)
+    #
+    # Get the needed authentication token and tenant_id from the service catalog
+    #
+    token = servicecat["access"]["token"]["id"]
+    tenant_id = servicecat["access"]["token"]["tenant"]["id"]
+    #
+    # Get the load balancer sub-catalog from the full service catalog
+    #
+    mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
+               if cat["type"] == "rax:load-balancer"][0]
+    #
+    # Get the base url for the load balancer API and build the needed other urls
+    #
+    lburlbase = [endp["publicURL"] for endp in mylbcat["endpoints"]
+                 if endp["region"].lower() == region][0]
+    lburl = '/'.join([lburlbase, "loadbalancers", args.lbid])
+    lburl_ssl = '/'.join([lburl, "ssltermination"])
+    lburl_cmap = '/'.join([lburl_ssl, "certificatemappings"])
+    #
+    # Build the HTTP headers dictionary needed for the API calls
+    #
+    hdrs = dict()
+    hdrs['Content-Type'] = 'application/json'
+    hdrs['X-Auth-Token'] = token
+    #
+    # Call the API and build dictionaries of the resulting calls.
+    # The base LB dictionary, the SSL LB dictionary, and the
+    # Certificate Mapping LB dictionary
+    #
+    lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
+    lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
+    lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
 
-if args.cmd == 'list':
-    lst_maps(lbinf["loadBalancer"], lbinf_cmap, args.query)
+    if args.cmd == 'list':
+        lst_maps(lbinf["loadBalancer"], lbinf_cmap, args.query)
 
-elif args.cmd == 'add':
-    certs = dict()
-    # certs["hostName"] = args.dom
-    certs['privateKey'] = read_cert_file(args.key)
-    certs['certificate'] = read_cert_file(args.crt)
-    if args.cacrt:
-        certs['intermediateCertificate'] = read_cert_file(args.cacrt)
+    elif args.cmd == 'add':
+        certs = dict()
+        # certs["hostName"] = args.dom
+        certs['privateKey'] = read_cert_file(args.key)
+        certs['certificate'] = read_cert_file(args.crt)
+        if args.cacrt:
+            certs['intermediateCertificate'] = read_cert_file(args.cacrt)
 
-    add_map(lburl_cmap, hdrs, hostname=args.dom, certificates=certs)
+        add_map(lburl_cmap, hdrs, hostname=args.dom, certificates=certs)
 
-elif args.cmd == 'delete':
-    del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
+    elif args.cmd == 'update':
+        pass
 
-else:
-    pass
-#
+    elif args.cmd == 'delete':
+        del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
+
+    else:
+        pass
+    #
