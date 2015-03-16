@@ -11,20 +11,50 @@
 #
 
 '''
-Create or add a certificate mapping for a cloud load balancer.
+usage: certmap.py [-h] [--username USERNAME] [--apikey API_KEY]
+                  [--region REGION]
+                  {add,list,delete} ...
+
+Manage certificate mappings for cloud load balancer.
+
+positional arguments:
+    {add,list,delete}
+    list               list current mappings
+    add                add certificate mapping
+    delete             delete certificate mapping
+
+optional arguments:
+    -h, --help           show this help message and exit
+    --username USERNAME  The username for the account (or use the OS_USERNAME
+                         environment variable or the ~/raxcreds file).
+    --apikey API_KEY     The username for the account (or use the OS_PASSWORD
+                         environment variable or the ~/.raxcreds file).
+    --region REGION      The region for the loadbalancer (or use the
+                         OS_REGION_NAME environment variable or the ~/.raxcreds
+                         file).
+
+
+usage: certmap.py list [-h] [--query] LB-ID
+
+positional arguments:
+    LB-ID       The id of the load balancer.
+
+optional arguments:
+    -h, --help  show this help message and exit
+    --query     Query the certificates for the valid domains.
+
+usage: certmap.py add [-h] [--ssl] --key PRIVATE-KEY-FILE --crt
+                      CERTIFICATE-FILE [--cacrt INTERMEDIATE-CERTIFICATE-FILE]
+                      LB-ID DOMAIN
 
 positional arguments:
     LB-ID                 The id of the load balancer.
-    DOMAIN                The domain or hostname of the certificate.
-
+    DOMAIN                The domain or hostname of the certificate.environment
+                          variable).argparse
 optional arguments:
     -h, --help            show this help message and exit
-    --username USERNAME   The username for the account (or set the OS_USERNAME
-                          environment variable)
-    --apikey API_KEY      The username for the account (or set the OS_PASSWORD
-                          environment variable).
-    --region REGION       The region for the loadbalancer (or set the
-                          OS_REGION_NAME environment variable).
+    --ssl                 enable SSL Termination and set this as default
+                          certificate.
     --key PRIVATE-KEY-FILE
                           The filename containing the private key.
     --crt CERTIFICATE-FILE
@@ -32,6 +62,7 @@ optional arguments:
     --cacrt INTERMEDIATE-CERTIFICATE-FILE
                           The filename containing the intermediate
                           certificate(s).
+
 '''
 
 import os
@@ -99,7 +130,7 @@ def del_maps(cmap_url, id_lst, headers=''):
 
 def process_args():
     parser = argparse.ArgumentParser(
-        description='Create certificate mapping for cloud load balancer.')
+        description='Manage certificate mappings for cloud load balancer.')
     parser.add_argument(
         '--username', metavar="USERNAME",
         help='The username for the account (or use the OS_USERNAME '
@@ -228,7 +259,7 @@ def get_servicecat(username, apikey):
     return json.loads(jservicecat)
 
 
-def enumerate_cert_domains(ip, port=443, servername=''):
+def enumerate_cert_domains(ip, port='443', servername=''):
     import tempfile
     import subprocess
     from os import devnull
@@ -237,12 +268,12 @@ def enumerate_cert_domains(ip, port=443, servername=''):
         with open(devnull, "w") as fnull:
             if servername != '':
                 rcrt1.write(subprocess.check_output(
-                    ["openssl", "s_client", "-connect", ip + ":443",
+                    ["openssl", "s_client", "-connect", ip + ":" + str(port),
                      "-servername", servername],
                     stderr=fnull))
             else:
                 rcrt1.write(subprocess.check_output(
-                    ["openssl", "s_client", "-connect", ip + ":443"],
+                    ["openssl", "s_client", "-connect", ip + ":" + str(port)],
                     stderr=fnull))
             rcrt1.flush()
             for line in subprocess.check_output(
