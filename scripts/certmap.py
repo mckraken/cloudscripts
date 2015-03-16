@@ -49,7 +49,6 @@ def pprint_dict(item):
 
 
 def lst_maps(lbd, cmapd, query_certs=False):
-
     try:
         if lbd["sslTermination"]["enabled"]:
             lbipv4 = [ip["address"] for ip in lbd['virtualIps']
@@ -92,11 +91,9 @@ def add_map(cmap_url, headers='', hostname='', certificates={}):
 def del_maps(cmap_url, id_lst, headers=''):
     for cmap_id in id_lst:
         cmap_delete_url = '/'.join([cmap_url, cmap_id])
-        # print cmap_delete_url
-        # print headers
         cmapdel = requests.delete(cmap_delete_url, headers=headers)
 
-        print cmapdel.status_code
+        print cmapdel.status_code,
         print cmapdel.text
 
 
@@ -329,31 +326,4 @@ elif args.cmd == 'delete':
 
 else:
     pass
-
-# # args.func(lburl_cmap, hdrs)
-# if args.cmd == 'list':
-#     lst_maps(lbinf, lburl, hdrs)
-
-# cmap = dict()
-# data = dict()
-# cmap['hostName'] = args.dom
-# cmap['privateKey'] = read_cert_file(args.key)
-# cmap['certificate'] = read_cert_file(args.crt)
-# if args.cacrt:
-#     cmap['intermediateCertificate'] = read_cert_file(args.cacrt)
 #
-# data['certificateMapping'] = cmap
-#
-# jdata = json.dumps(data)
-
-# crtadd = requests.post(lburl_cmap, headers=hdrs, data=jdata)
-
-# print crtadd.text
-# print crtadd.status_code
-
-# crtlst = requests.get(lburl_cmap, headers=hdrs)
-
-# print json.dumps(crtlst.json(),
-#                  sort_keys=True,
-#                  indent=4,
-#                  separators=(',', ': '))
