@@ -124,11 +124,7 @@ def lst_maps(lbd, cmapd, query_certs=False):
         print "Error: SSL is not enabled on this load balancer."
 
 
-def add_map(url, headers=None, hostname=None, certificates={}):
-    data = dict()
-    # certificates['hostName'] = hostname
-    data['certificateMapping'] = certificates
-
+def add_map(url, headers=None, data={}):
     jdata = json.dumps(data)
     status_url = url.rpartition('/ssl')[0]
     print "Checking current load balancer status."
@@ -137,7 +133,6 @@ def add_map(url, headers=None, hostname=None, certificates={}):
         sys.exit(1)
 
     crtadd = requests.post(url, headers=headers, data=jdata)
-    d_crtadd = crtadd.json()
 
     if crtadd.status_code == 202:
         if wait_for_status(status_url, headers) == 'ERROR':
@@ -147,41 +142,57 @@ def add_map(url, headers=None, hostname=None, certificates={}):
         return 0
     else:
         print "Error (code {0}):\n{1}".format(
-            d_crtadd["code"], d_crtadd["message"])
+            crtadd.status_code, crtadd.json()["message"])
 
 
-def upd_map(url, headers=None, hostname=None, certificates={}):
-    data = dict()
-    # certificates['hostName'] = hostname
-    data['certificateMapping'] = certificates
-
+def upd_map(url, headers=None, hostname=None, data={}):
     jdata = json.dumps(data)
+    status_url = url.rpartition('/ssl')[0]
+    print "Checking current load balancer status."
+    if wait_for_status(status_url, headers) == 'ERROR':
+        print "Load balancer is in ERROR state."
+        sys.exit(1)
 
-    pprint_dict(data)
     crtupd = requests.put(url, headers=headers, data=jdata)
 
     if crtupd.status_code == 202:
-        print "Success!  The current mappings are:"
+        if wait_for_status(status_url, headers) == 'ERROR':
+            print "Load balancer is in ERROR state."
+            sys.exit(1)
+        print "Success!"
         return 0
     else:
         print "Error (code {0}):\n{1}".format(
             crtupd.status_code, crtupd.json()["message"])
 
 
-def del_maps(cmap_url, id_lst, headers=''):
-    for cmap_id in id_lst:
-        cmap_delete_url = '/'.join([cmap_url, cmap_id])
-        cmapdel = requests.delete(cmap_delete_url, headers=headers)
-        status_url = cmap_url.rpartition('/ssl')[0]
-        print "Deleting certificate mapping ID {0} ...".format(cmap_id)
-        if cmapdel.status_code == 202:
+def del_maps(url, id_lst=None, headers=''):
+    if id_lst is not None:
+        for cmap_id in id_lst:
+            cmap_delete_url = '/'.join([url, cmap_id])
+            cmapdel = requests.delete(cmap_delete_url, headers=headers)
+            status_url = url.rpartition('/ssl')[0]
+            print "Deleting certificate mapping ID {0} ...".format(cmap_id)
+            if cmapdel.status_code == 202:
+                if wait_for_status(status_url, headers) == 'ERROR':
+                    print "Load balancer is in ERROR state."
+                    sys.exit(1)
+                print "Success!"
+            else:
+                print "Error (code {0}):\n{1}".format(
+                    cmapdel.status_code, cmapdel.json()["message"])
+    else:
+        ssldel = requests.delete(url, headers=headers)
+        status_url = url.rpartition('/ssl')[0]
+        print "Deleting SSL Termination..."
+        if ssldel.status_code == 202:
             if wait_for_status(status_url, headers) == 'ERROR':
                 print "Load balancer is in ERROR state."
                 sys.exit(1)
             print "Success!"
         else:
             print "Error (code {0}):\n{1}".format(
-                cmapdel.status_code, cmapdel.json()["message"])
+                ssldel.status_code, ssldel.json()["message"])
 
 
 def process_args():
@@ -262,8 +273,13 @@ def process_args():
     subparser_del.add_argument(
         'lbid', metavar="LB-ID",
         help='The id of the load balancer.')
-    subparser_del.add_argument(
-        'cmap_ids', metavar="CERTIFICATE-MAPPING-ID", nargs='+',
+    del_cmap_or_ssl = subparser_del.add_mutually_exclusive_group(required=True)
+    del_cmap_or_ssl.add_argument(
+        '--ssl', action='store_true',
+        help='Delete the main SSL termination configuration.')
+    del_cmap_or_ssl.add_argument(
+        '--cmap-id', metavar="CERTIFICATE-MAPPING-ID",
+        dest='cmap_ids', nargs='+',
         help='The id(s) of the certificate mappings to delete.')
 
     return parser.parse_args()
@@ -367,7 +383,7 @@ def enumerate_cert_domains(ip, port='443', servername=''):
 if __name__ == "__main__":
     args = process_args()
 
-    print args
+    # print args
 
     #
     # Set up all the variables
@@ -430,9 +446,16 @@ if __name__ == "__main__":
     elif args.cmd == 'add':
         exitcode = 0
         certs = dict()
-        certs["hostName"] = args.domain
+        if not args.ssl:
+            certs["hostName"] = args.domain
+        else:
+            certs["enabled"] = True
+            certs["securePort"] = 443
         if os.path.isfile(os.path.expanduser(args.key)):
-            certs['privateKey'] = read_cert_file(args.key)
+            if args.ssl:
+                certs['privatekey'] = read_cert_file(args.key)
+            else:
+                certs['privateKey'] = read_cert_file(args.key)
         else:
             print "Error: Private key file {0} not found.".format(args.key)
             exitcode = 1
@@ -451,36 +474,51 @@ if __name__ == "__main__":
         if exitcode:
             sys.exit(exitcode)
 
-        add_map(lburl_cmap, hdrs, hostname=args.domain, certificates=certs)
+        if not args.ssl:
+            certdata = dict()
+            certdata['certificateMapping'] = certs
+            add_map(lburl_cmap, hdrs, data=certdata)
+        else:
+            certdata = dict()
+            certdata['sslTermination'] = certs
+            upd_map(lburl_ssl, hdrs, data=certdata)
 
     elif args.cmd == 'update':
-        if args.cmid:
-            mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                        lbinf_cmap["certificateMappings"] if
-                        cmap["certificateMapping"]["id"] == args.cmid]
-        elif args.domain:
-            mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                        lbinf_cmap["certificateMappings"] if
-                        cmap["certificateMapping"]["hostName"] == args.domain]
-        else:
-            print "Error: One of either --domain (hostname) or --cmap-id",
-            print "must be specified for which configuration to update."
-            sys.exit(1)
-        if not mycmapid:
-            print "Error: The specified certificate mapping was not found."
-            sys.exit(1)
+        if not args.ssl:
+            if args.cmid:
+                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
+                            lbinf_cmap["certificateMappings"] if
+                            cmap["certificateMapping"]["id"] == args.cmid]
+            elif args.domain:
+                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
+                            lbinf_cmap["certificateMappings"] if
+                            cmap["certificateMapping"]["hostName"] ==
+                            args.domain]
+            else:
+                print "Error: One of either --domain (hostname) or --cmap-id",
+                print "must be specified for which configuration to update."
+                sys.exit(1)
+            if not mycmapid:
+                print "Error: The specified certificate mapping was not found."
+                sys.exit(1)
 
         certs = dict()
         exitcode = 0
         update = 0
-        if args.domain:
+        if args.domain and not args.ssl:
             certs["hostName"] = args.domain
             update = 1
+        if args.ssl:
+            certs["enabled"] = True
+            certs["securePort"] = 443
         if args.key is not None:
             if os.path.isfile(os.path.expanduser(args.key)):
-                certs['privateKey'] = read_cert_file(args.key)
+                if args.ssl:
+                    certs['privatekey'] = read_cert_file(args.key)
+                else:
+                    certs['privateKey'] = read_cert_file(args.key)
                 update = 1
-            else
+            else:
                 print "Error: Private key file {0} not found.".format(args.key)
                 exitcode = 1
         if args.crt is not None:
@@ -495,21 +533,31 @@ if __name__ == "__main__":
                 certs['intermediateCertificate'] = read_cert_file(args.cacrt)
                 update = 1
             else:
-                print "Error: CA Certificate file {0} not found.".format(args.cacrt)
+                print "Error: CA Certificate file {0} not found.".format(
+                    args.cacrt)
                 exitcode = 1
         if exitcode:
             sys.exit(exitcode)
 
         if update:
-            upd_url = '/'.join([lburl_cmap, str(mycmapid[0])])
-            upd_map(upd_url, hdrs, hostname=args.domain, certificates=certs)
+            if not args.ssl:
+                certdata = dict()
+                certdata['certificateMapping'] = certs
+                upd_url = '/'.join([lburl_cmap, str(mycmapid[0])])
+                upd_map(upd_url, hdrs, data=certdata)
+            else:
+                certdata = dict()
+                certdata['sslTermination'] = certs
+                upd_map(lburl_ssl, hdrs, data=certdata)
         else:
             print "Error: Nothing to update"
             sys.exit(1)
 
-
     elif args.cmd == 'delete':
-        del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
+        if not args.ssl:
+            del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
+        else:
+            del_maps(lburl_ssl, headers=hdrs)
 
     else:
         pass
