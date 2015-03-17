@@ -159,17 +159,13 @@ def upd_map(url, headers=None, hostname=None, certificates={}):
 
     pprint_dict(data)
     crtupd = requests.put(url, headers=headers, data=jdata)
-    d_crtupd = crtupd.json()
 
     if crtupd.status_code == 202:
         print "Success!  The current mappings are:"
         return 0
     else:
         print "Error (code {0}):\n{1}".format(
-            d_crtupd["code"], d_crtupd["message"])
-
-    # print crtupd.text
-    # print crtupd.status_code
+            crtupd.status_code, crtupd.json()["message"])
 
 
 def del_maps(cmap_url, id_lst, headers=''):
@@ -368,7 +364,6 @@ def enumerate_cert_domains(ip, port='443', servername=''):
             return certdom
 
 
-# def main():
 if __name__ == "__main__":
     args = process_args()
 
@@ -476,38 +471,45 @@ if __name__ == "__main__":
             sys.exit(1)
 
         certs = dict()
+        exitcode = 0
+        update = 0
         if args.domain:
             certs["hostName"] = args.domain
-        if args.key is not None and\
-                os.path.isfile(os.path.expanduser(args.key)):
-            certs['privateKey'] = read_cert_file(args.key)
-        else:
-            print "Error: Private key file {0} not found.".format(args.key)
-            exitcode = 1
-        if args.crt is not None and\
-                os.path.isfile(os.path.expanduser(args.crt)):
-            certs['certificate'] = read_cert_file(args.crt)
-        else:
-            print "Error: Certificate file {0} not found.".format(args.crt)
-            exitcode = 1
-        if args.cacrt is not None and\
-                os.path.isfile(os.path.expanduser(args.cacrt)):
-            certs['intermediateCertificate'] = read_cert_file(args.cacrt)
-        else:
-            print "Error: CA Certificate file {0} not found.".format(args.cacrt)
-            exitcode = 1
+            update = 1
+        if args.key is not None:
+            if os.path.isfile(os.path.expanduser(args.key)):
+                certs['privateKey'] = read_cert_file(args.key)
+                update = 1
+            else
+                print "Error: Private key file {0} not found.".format(args.key)
+                exitcode = 1
+        if args.crt is not None:
+            if os.path.isfile(os.path.expanduser(args.crt)):
+                certs['certificate'] = read_cert_file(args.crt)
+                update = 1
+            else:
+                print "Error: Certificate file {0} not found.".format(args.crt)
+                exitcode = 1
+        if args.cacrt is not None:
+            if os.path.isfile(os.path.expanduser(args.cacrt)):
+                certs['intermediateCertificate'] = read_cert_file(args.cacrt)
+                update = 1
+            else:
+                print "Error: CA Certificate file {0} not found.".format(args.cacrt)
+                exitcode = 1
         if exitcode:
             sys.exit(exitcode)
 
-        upd_url = '/'.join([lburl_cmap, str(mycmapid[0])])
+        if update:
+            upd_url = '/'.join([lburl_cmap, str(mycmapid[0])])
+            upd_map(upd_url, hdrs, hostname=args.domain, certificates=certs)
+        else:
+            print "Error: Nothing to update"
+            sys.exit(1)
 
-        upd_map(upd_url, hdrs, hostname=args.domain, certificates=certs)
 
     elif args.cmd == 'delete':
         del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
 
     else:
         pass
-
-# if __name__ == "__main__":
-#     main()
