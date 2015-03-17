@@ -11,57 +11,109 @@
 #
 
 '''
-usage: certmap.py [-h] [--username USERNAME] [--apikey API_KEY]
-                  [--region REGION]
-                  {add,list,delete} ...
+---------------
+Base help:
+---------------
+usage: lbssl.py [-h] [--username USERNAME] [--apikey API_KEY]
+                [--region REGION]
+                {add,list,update,delete} ...
 
 Manage certificate mappings for cloud load balancer.
 
 positional arguments:
-    {add,list,delete}
-    list               list current mappings
-    add                add certificate mapping
-    delete             delete certificate mapping
+  {add,list,update,delete}
+    list                list current mappings
+    add                 add certificate mapping
+    update              Update the certificate mapping
+    delete              delete certificate mapping
 
 optional arguments:
-    -h, --help           show this help message and exit
-    --username USERNAME  The username for the account (or use the OS_USERNAME
-                         environment variable or the ~/raxcreds file).
-    --apikey API_KEY     The username for the account (or use the OS_PASSWORD
-                         environment variable or the ~/.raxcreds file).
-    --region REGION      The region for the loadbalancer (or use the
-                         OS_REGION_NAME environment variable or the ~/.raxcreds
-                         file).
+  -h, --help            show this help message and exit
+  --username USERNAME   The username for the account (or use the OS_USERNAME
+                        environment variable or the ~/.raxcreds file).
+  --apikey API_KEY      The username for the account (or use the OS_PASSWORD
+                        environment variable or the ~/.raxcreds file).
+  --region REGION       The region for the loadbalancer (or use the
+                        OS_REGION_NAME environment variable or the ~/.raxcreds
+                        file).
 
-
-usage: certmap.py list [-h] [--query] LB-ID
+---------------
+"list" help:
+---------------
+usage: lbssl.py list [-h] [--query] LB-ID
 
 positional arguments:
-    LB-ID       The id of the load balancer.
+  LB-ID       The id of the load balancer.
 
 optional arguments:
-    -h, --help  show this help message and exit
-    --query     Query the certificates for the valid domains.
+  -h, --help  show this help message and exit
+  --query     Query the certificates for the valid domains.
 
-usage: certmap.py add [-h] [--ssl] --key PRIVATE-KEY-FILE --crt
-                      CERTIFICATE-FILE [--cacrt INTERMEDIATE-CERTIFICATE-FILE]
-                      LB-ID DOMAIN
+---------------
+"add" help:
+---------------
+usage: lbssl.py add [-h] [--domain DOMAIN] --key PRIVATE-KEY-FILE --crt
+                    CERTIFICATE-FILE [--cacrt INTERMEDIATE-CERTIFICATE-FILE]
+                    [--ssl]
+                    LB-ID
 
 positional arguments:
-    LB-ID                 The id of the load balancer.
-    DOMAIN                The domain or hostname of the certificate.environment
-                          variable).argparse
+  LB-ID                 The id of the load balancer.
+
 optional arguments:
-    -h, --help            show this help message and exit
-    --ssl                 enable SSL Termination and set this as default
-                          certificate.
-    --key PRIVATE-KEY-FILE
-                          The filename containing the private key.
-    --crt CERTIFICATE-FILE
-                          The filename containing the certificate.
-    --cacrt INTERMEDIATE-CERTIFICATE-FILE
-                          The filename containing the intermediate
-                          certificate(s).
+  -h, --help            show this help message and exit
+  --domain DOMAIN       The domain or hostname of the certificate.
+  --key PRIVATE-KEY-FILE
+                        The filename containing the private key.
+  --crt CERTIFICATE-FILE
+                        The filename containing the certificate.
+  --cacrt INTERMEDIATE-CERTIFICATE-FILE
+                        The filename containing the intermediate
+                        certificate(s).
+  --ssl                 enable SSL Termination and set this as default
+                        certificate.
+
+---------------
+"update" help:
+---------------
+usage: lbssl.py update [-h] [--domain DOMAIN] [--cmap-id CERT-MAPPING-ID]
+                       [--key PRIVATE-KEY-FILE] [--crt CERTIFICATE-FILE]
+                       [--cacrt INTERMEDIATE-CERTIFICATE-FILE] [--ssl]
+                       LB-ID
+
+positional arguments:
+  LB-ID                 The id of the load balancer.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --domain DOMAIN       The hostname of the certificate to update.
+  --cmap-id CERT-MAPPING-ID
+                        The certificate mapping id number to update.
+  --key PRIVATE-KEY-FILE
+                        The filename containing the private key.
+  --crt CERTIFICATE-FILE
+                        The filename containing the certificate.
+  --cacrt INTERMEDIATE-CERTIFICATE-FILE
+                        The filename containing the intermediate
+                        certificate(s).
+  --ssl                 Update the default SSL certificate on the load
+                        balancer.
+
+---------------
+"delete" help:
+---------------
+usage: lbssl.py delete [-h]
+                       (--ssl | --cmap-id CERTIFICATE-MAPPING-ID [CERTIFICATE-MAPPING-ID ...])
+                       LB-ID
+
+positional arguments:
+  LB-ID                 The id of the load balancer.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --ssl                 Delete the main SSL termination configuration.
+  --cmap-id CERTIFICATE-MAPPING-ID [CERTIFICATE-MAPPING-ID ...]
+                        The id(s) of the certificate mappings to delete.
 
 '''
 
