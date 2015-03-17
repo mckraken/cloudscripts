@@ -70,6 +70,7 @@ import json
 import requests
 import argparse
 import sys
+import time
 
 
 def pprint_dict(item):
@@ -77,6 +78,23 @@ def pprint_dict(item):
                      sort_keys=True,
                      indent=4,
                      separators=(',', ': '))
+
+
+def wait_for_status(url, hdrs):
+    start = time.time()
+    while True:
+        lbstatus = json.loads(requests.get(url,
+                                           headers=hdrs
+                                           ).content)["loadBalancer"]["status"]
+        if lbstatus in ['ACTIVE', 'ERROR']:
+            print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
+                lbstatus, (time.time() - start))
+            # print "Current status: {0}".format(lbstatus)
+            return lbstatus
+        else:
+            print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
+                lbstatus, (time.time() - start))
+            time.sleep(5)
 
 
 def lst_maps(lbd, cmapd, query_certs=False):
@@ -112,11 +130,19 @@ def add_map(url, headers=None, hostname=None, certificates={}):
     data['certificateMapping'] = certificates
 
     jdata = json.dumps(data)
+    status_url = url.rpartition('/ssl')[0]
+    print "Checking current load balancer status."
+    if wait_for_status(status_url, headers) == 'ERROR':
+        print "Load balancer is in ERROR state."
+        sys.exit(1)
 
     crtadd = requests.post(url, headers=headers, data=jdata)
     d_crtadd = crtadd.json()
 
     if crtadd.status_code == 202:
+        if wait_for_status(status_url, headers) == 'ERROR':
+            print "Load balancer is in ERROR state."
+            sys.exit(1)
         print "Success!  The current mappings are:"
         return 0
     else:
@@ -132,7 +158,15 @@ def upd_map(url, headers=None, hostname=None, certificates={}):
     jdata = json.dumps(data)
 
     pprint_dict(data)
-    # crtupd = requests.put(url, headers=headers, data=jdata)
+    crtupd = requests.put(url, headers=headers, data=jdata)
+    d_crtupd = crtupd.json()
+
+    if crtupd.status_code == 202:
+        print "Success!  The current mappings are:"
+        return 0
+    else:
+        print "Error (code {0}):\n{1}".format(
+            d_crtupd["code"], d_crtupd["message"])
 
     # print crtupd.text
     # print crtupd.status_code
@@ -142,9 +176,16 @@ def del_maps(cmap_url, id_lst, headers=''):
     for cmap_id in id_lst:
         cmap_delete_url = '/'.join([cmap_url, cmap_id])
         cmapdel = requests.delete(cmap_delete_url, headers=headers)
-
-        print cmapdel.status_code,
-        print cmapdel.text
+        status_url = cmap_url.rpartition('/ssl')[0]
+        print "Deleting certificate mapping ID {0} ...".format(cmap_id)
+        if cmapdel.status_code == 202:
+            if wait_for_status(status_url, headers) == 'ERROR':
+                print "Load balancer is in ERROR state."
+                sys.exit(1)
+            print "Success!"
+        else:
+            print "Error (code {0}):\n{1}".format(
+                cmapdel.status_code, cmapdel.json()["message"])
 
 
 def process_args():
@@ -384,6 +425,7 @@ if __name__ == "__main__":
     # Certificate Mapping LB dictionary
     #
     lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
+    # pprint_dict(lbinf)
     # lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
     lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
 
@@ -414,8 +456,7 @@ if __name__ == "__main__":
         if exitcode:
             sys.exit(exitcode)
 
-        if add_map(lburl_cmap, hdrs, hostname=args.domain, certificates=certs) == 0:
-            lst_maps(lbinf["loadBalancer"], lbinf_cmap)
+        add_map(lburl_cmap, hdrs, hostname=args.domain, certificates=certs)
 
     elif args.cmd == 'update':
         if args.cmid:
