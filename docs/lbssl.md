@@ -11,7 +11,7 @@ For working with the API, (obviously) one needs to authenticate.  This script lo
     [raxcreds]
     username: <username>
     apikey: <apikey>
-    region: <apikey>
+    region: <region>
 
 Options
 -------
