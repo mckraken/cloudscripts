@@ -103,7 +103,8 @@ optional arguments:
 "delete" help:
 ---------------
 usage: lbssl.py delete [-h]
-                       (--ssl | --cmap-id CERTIFICATE-MAPPING-ID [CERTIFICATE-MAPPING-ID ...])
+                       (--ssl | --cmap-id CERTIFICATE-MAPPING-ID
+                        [CERTIFICATE-MAPPING-ID ...])
                        LB-ID
 
 positional arguments:
@@ -135,18 +136,15 @@ def pprint_dict(item):
 def wait_for_status(url, hdrs):
     start = time.time()
     while True:
-        lbstatus = json.loads(requests.get(url,
-                                           headers=hdrs
-                                           ).content)["loadBalancer"]["status"]
+        lbstatus = json.loads(
+            requests.get(url, headers=hdrs).content
+            )["loadBalancer"]["status"]
+        print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
+            lbstatus, (time.time() - start))
         if lbstatus in ['ACTIVE', 'ERROR']:
-            print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
-                lbstatus, (time.time() - start))
-            # print "Current status: {0}".format(lbstatus)
             return lbstatus
         else:
-            print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
-                lbstatus, (time.time() - start))
-            time.sleep(5)
+            time.sleep(15)
 
 
 def lst_maps(lbd, cmapd, query_certs=False):
@@ -349,16 +347,13 @@ def read_cert_file(f):
 def check_arg_or_env(item, aitem, eitem):
     import ConfigParser
     if aitem is not None:
-        # print "args", item, getattr(args, item)
         return aitem
     elif os.getenv(eitem):
-        # print "env", item, os.getenv(eitem)
         return os.getenv(eitem)
     elif os.path.isfile(os.path.expanduser("~/.raxcreds")):
         config = ConfigParser.RawConfigParser()
         config.read(os.path.expanduser("~/.raxcreds"))
         try:
-            # print "cfg", item, config.get('raxcreds', item)
             return config.get('raxcreds', item)
         except ConfigParser.NoOptionError:
             print "You need use a flag, environment variable,",
@@ -435,8 +430,6 @@ def enumerate_cert_domains(ip, port='443', servername=''):
 if __name__ == "__main__":
     args = process_args()
 
-    # print args
-
     #
     # Set up all the variables
     #
@@ -459,17 +452,16 @@ if __name__ == "__main__":
     #
     servicecat = get_servicecat(username, apikey)
     #
-    # Get the needed authentication token and tenant_id from the service catalog
+    # Get the needed authentication token from the service catalog
     #
     token = servicecat["access"]["token"]["id"]
-    # tenant_id = servicecat["access"]["token"]["tenant"]["id"]
     #
     # Get the load balancer sub-catalog from the full service catalog
     #
     mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
                if cat["type"] == "rax:load-balancer"][0]
     #
-    # Get the base url for the load balancer API and build the needed other urls
+    # Get the base url for the LB API and build the needed other urls
     #
     lburlbase = [endp["publicURL"] for endp in mylbcat["endpoints"]
                  if endp["region"].lower() == region][0]
@@ -488,7 +480,6 @@ if __name__ == "__main__":
     # Certificate Mapping LB dictionary
     #
     lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
-    # pprint_dict(lbinf)
     # lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
     lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
 
@@ -610,6 +601,4 @@ if __name__ == "__main__":
             del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
         else:
             del_maps(lburl_ssl, headers=hdrs)
-
-    else:
-        pass
+#
