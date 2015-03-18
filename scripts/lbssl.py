@@ -177,7 +177,7 @@ def lst_maps(lbd, cmapd, query_certs=False):
 def add_map(url, headers=None, data={}):
     jdata = json.dumps(data)
     status_url = url.rpartition('/ssl')[0]
-    print "Checking current load balancer status."
+    print "Checking current load balancer status.",
     if wait_for_status(status_url, headers) == 'ERROR':
         print "Load balancer is in ERROR state."
         sys.exit(1)
@@ -188,7 +188,7 @@ def add_map(url, headers=None, data={}):
         if wait_for_status(status_url, headers) == 'ERROR':
             print "Load balancer is in ERROR state."
             sys.exit(1)
-        print "Success!  The current mappings are:"
+        print "Success!"
         return 0
     else:
         print "Error (code {0}):\n{1}".format(
@@ -277,7 +277,11 @@ def process_args():
     subparser_add.add_argument(
         'lbid', metavar="LB-ID",
         help='The id of the load balancer.')
-    subparser_add.add_argument(
+    add_cmap_or_ssl = subparser_add.add_mutually_exclusive_group(required=True)
+    add_cmap_or_ssl.add_argument(
+        '--ssl', action='store_true',
+        help='enable SSL Termination and set this as default certificate.')
+    add_cmap_or_ssl.add_argument(
         '--domain', metavar="DOMAIN",
         help='The domain or hostname of the certificate.')
     subparser_add.add_argument(
@@ -289,7 +293,7 @@ def process_args():
     subparser_add.add_argument(
         '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
         help='The filename containing the intermediate certificate(s).')
-    subparser_add.add_argument(
+    add_cmap_or_ssl.add_argument(
         '--ssl', action='store_true',
         help='enable SSL Termination and set this as default certificate.')
 
