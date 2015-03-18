@@ -1,4 +1,6 @@
 cloudscripts
 ============
 
-Various scripts to help work with Cloud and the API
+Here are various scripts to help make working with the Cloud and the API a little bit easier. 
+
+Enjoy!
