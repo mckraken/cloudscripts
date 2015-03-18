@@ -293,9 +293,6 @@ def process_args():
     subparser_add.add_argument(
         '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
         help='The filename containing the intermediate certificate(s).')
-    add_cmap_or_ssl.add_argument(
-        '--ssl', action='store_true',
-        help='enable SSL Termination and set this as default certificate.')
 
     subparser_upd = subparser.add_parser(
         'update',
