@@ -8,11 +8,10 @@ Authentication
 
 For working with the API, (obviously) one needs to authenticate.  This script looks for authentication from command-line flags, environment variables, or a ~/.raxcreds "ini" style file in that order.  The .raxcreds file is assumed to have the following format:
 
-::
-	[raxcreds]
-	username: <username>
-	apikey: <apikey>
-	region: <apikey>
+    [raxcreds]
+    username: <username>
+    apikey: <apikey>
+    region: <apikey>
 
 Options
 -------
