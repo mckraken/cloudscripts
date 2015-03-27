@@ -345,12 +345,12 @@ def read_cert_file(f):
         sys.exit(1)
 
 
-def check_arg_or_env(item, aitem, eitem):
+def check_arg_or_env(item, argvar=None, envvar=''):
     import ConfigParser
-    if aitem is not None:
-        return aitem
-    elif os.getenv(eitem):
-        return os.getenv(eitem)
+    if argvar is not None:
+        return argvar
+    elif os.getenv(envvar):
+        return os.getenv(envvar)
     elif os.path.isfile(os.path.expanduser("~/.raxcreds")):
         config = ConfigParser.RawConfigParser()
         config.read(os.path.expanduser("~/.raxcreds"))
