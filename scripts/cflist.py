@@ -129,8 +129,7 @@ if __name__ == "__main__":
     cflst = []
     cfreq = requests.get(cfurl, headers=hdrs)
     while cfreq.status_code != 204:
-        cfsublst = cfreq.content.split('\n')
-        cfsublst.pop()
+        cfsublst = cfreq.content.rstrip('\n').split('\n')
         cfnewurl = '='.join([cfurl + '?' + 'marker', cfsublst[-1]])
         cfreq = requests.get(cfnewurl, headers=hdrs)
         cflst.extend(cfsublst)
