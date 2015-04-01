@@ -409,13 +409,16 @@ def enumerate_cert_domains(ip, port='443', servername=''):
         with open(devnull, "w") as fnull:
             if servername != '':
                 rcrt1.write(subprocess.check_output(
-                    ["openssl", "s_client", "-connect", ip + ":" + str(port),
-                     "-servername", servername],
-                    stderr=fnull))
+                    "echo | openssl s_client -connect " + ip + ":" + str(port) + " -servername " + servername,
+                    stderr=fnull,
+                    shell=True)
+                    )
             else:
                 rcrt1.write(subprocess.check_output(
-                    ["openssl", "s_client", "-connect", ip + ":" + str(port)],
-                    stderr=fnull))
+                    "echo | openssl s_client -connect " + ip + ":" + str(port),
+                    stderr=fnull,
+                    shell=True)
+                    )
             rcrt1.flush()
             for line in subprocess.check_output(
                     ["openssl", "x509", "-noout", "-text", "-in", rcrt1.name],
