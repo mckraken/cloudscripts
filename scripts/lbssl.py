@@ -285,10 +285,10 @@ def process_args():
         '--domain', metavar="DOMAIN",
         help='The domain or hostname of the certificate.')
     subparser_add.add_argument(
-        '--key', metavar="PRIVATE-KEY-FILE", required=True,
+        '--key', metavar="PRIVATE-KEY-FILE",
         help='The filename containing the private key. ')
     subparser_add.add_argument(
-        '--crt', metavar="CERTIFICATE-FILE", required=True,
+        '--crt', metavar="CERTIFICATE-FILE",
         help='The filename containing the certificate. ')
     subparser_add.add_argument(
         '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
@@ -431,8 +431,65 @@ def enumerate_cert_domains(ip, port='443', servername=''):
             return certdom
 
 
+def read_cert_input(crt_type, verify_f=None):
+    import tempfile
+    import subprocess
+    label = {
+        'key': 'private key',
+        'crt': 'certificate',
+        'cacrt': 'CA cerificates'
+        }
+    verify_cmd = {
+        'key': ["openssl", "rsa", "-check", "-noout", "-in"],
+        'crt': 'certificate',
+        'cacrt': 'CA cerificates'
+        }
+    valid_rslt = {
+        'key': 'RSA key ok',
+        'crt': 'certificate',
+        'cacrt': 'CA cerificates'
+        }
+    tries = 1
+    sentinel = ""
+    print "Input the {0} (end with blank line):".format(label[crt_type])
+    with tempfile.NamedTemporaryFile() as rawcert:
+        verify_cmd[crt_type].append(rawcert.name)
+        while tries <= 3:
+            if tries != 1:
+                print "Try again (try {0} of 3):".format(tries)
+            rawcert.write('\n'.join(iter(raw_input, sentinel)))
+            rawcert.flush()
+            rawcert.seek(0)
+            try:
+                chkinput = subprocess.check_output(
+                    verify_cmd[crt_type],
+                    stderr=subprocess.STDOUT
+                    ).strip('\n')
+                if chkinput != valid_rslt[crt_type]:
+                    # print chkinput
+                    tries += 1
+                    print "Invalid input.",
+                    rawcert.truncate()
+                    continue
+                else:
+                    return rawcert.name
+            except:
+                # print chkinput
+                tries += 1
+                print "Invalid input.",
+                rawcert.truncate()
+                continue
+                # sys.exit(1)
+        print "Aborting."
+        sys.exit(1)
+        return chkinput
+        print rawcert.read()
+
+
 if __name__ == "__main__":
     args = process_args()
+
+    print args
 
     #
     # Set up all the variables
@@ -498,17 +555,24 @@ if __name__ == "__main__":
         else:
             certs["enabled"] = True
             certs["securePort"] = 443
-        if os.path.isfile(os.path.expanduser(args.key)):
+        if args.key is not None and os.path.isfile(os.path.expanduser(args.key)):
             if args.ssl:
                 certs['privatekey'] = read_cert_file(args.key)
             else:
                 certs['privateKey'] = read_cert_file(args.key)
         else:
+            tries = 1
+            result = read_cert_input('key')
+
+            print "--------------- sjm ----------------------"
+            print result
+            print "--------------- sjm ----------------------"
             print "Error: Private key file {0} not found.".format(args.key)
             exitcode = 1
-        if os.path.isfile(os.path.expanduser(args.crt)):
+        if args.crt is not None and os.path.isfile(os.path.expanduser(args.crt)):
             certs['certificate'] = read_cert_file(args.crt)
         else:
+            read_cert_input('crt')
             print "Error: Certificate file {0} not found.".format(args.crt)
             exitcode = 1
         if args.cacrt is not None:
@@ -518,6 +582,8 @@ if __name__ == "__main__":
                 print "Error: CA Certificate file {0} not found.".format(
                     args.cacrt)
                 exitcode = 1
+        else:
+            read_cert_input('cacrt')
         if exitcode:
             sys.exit(exitcode)
 
