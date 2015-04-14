@@ -7,8 +7,6 @@
 #
 #
 #
-#
-#
 
 '''
 ---------------
@@ -440,26 +438,36 @@ def read_cert_input(crt_type, verify_f=None):
         'cacrt': 'CA cerificates'
         }
     verify_cmd = {
-        'key': ["openssl", "rsa", "-check", "-noout", "-in"],
-        'crt': 'certificate',
-        'cacrt': 'CA cerificates'
+        'key': verify_key,
+        'crt': verify_crt,
+        'cacrt': verify_cacrt,
+        'keyold': ["openssl", "rsa", "-check", "-noout", "-in"],
+        'crtold': ["openssl", "x509", "-noout", "-in"],
+        'cacrtold': ["openssl", "x509", "-noout", "-in"]
         }
     valid_rslt = {
         'key': 'RSA key ok',
-        'crt': 'certificate',
-        'cacrt': 'CA cerificates'
+        'crt': '',
+        'cacrt': ''
         }
     tries = 1
     sentinel = ""
     print "Input the {0} (end with blank line):".format(label[crt_type])
-    with tempfile.NamedTemporaryFile() as rawcert:
-        verify_cmd[crt_type].append(rawcert.name)
+    with tempfile.NamedTemporaryFile(delete=False) as rawcert:
+        # verify_cmd[crt_type].append(rawcert.name)
         while tries <= 3:
             if tries != 1:
                 print "Try again (try {0} of 3):".format(tries)
             rawcert.write('\n'.join(iter(raw_input, sentinel)))
             rawcert.flush()
             rawcert.seek(0)
+            if verify_cmd[crt_type](rawcert.name, verify_f):
+                return rawcert.name
+            else:
+                tries += 1
+                print "Invalid input.",
+                rawcert.truncate()
+                continue
             try:
                 chkinput = subprocess.check_output(
                     verify_cmd[crt_type],
@@ -482,8 +490,41 @@ def read_cert_input(crt_type, verify_f=None):
                 # sys.exit(1)
         print "Aborting."
         sys.exit(1)
-        return chkinput
-        print rawcert.read()
+
+
+def verify_key(key_f, v_f=None):
+    import subprocess
+    v_cmd = ["openssl", "rsa", "-check", "-noout", "-in", key_f]
+    v_rslt = 'RSA key ok'
+    try:
+        v_input = subprocess.check_output(
+            v_cmd, stderr=subprocess.STDOUT).strip('\n')
+        if v_input != v_rslt:
+            return False
+        else:
+            return True
+    except:
+        return False
+
+
+def verify_crt(crt_f, key_f):
+    import subprocess
+    v_cmd = ["openssl", "rsa", "-check", "-noout", "-in", crt_f]
+    v_rslt = ''
+    try:
+        v_input = subprocess.check_output(
+            v_cmd, stderr=subprocess.STDOUT).strip('\n')
+        if v_input != v_rslt:
+            return False
+        else:
+            return True
+    except:
+        return False
+    pass
+
+
+def verify_cacrt(cacrt_f, crt_f):
+    pass
 
 
 if __name__ == "__main__":
@@ -558,22 +599,21 @@ if __name__ == "__main__":
         if args.key is not None and os.path.isfile(os.path.expanduser(args.key)):
             if args.ssl:
                 certs['privatekey'] = read_cert_file(args.key)
+                key_fname = args.key
             else:
                 certs['privateKey'] = read_cert_file(args.key)
+                key_fname = args.key
         else:
             tries = 1
-            result = read_cert_input('key')
-
-            print "--------------- sjm ----------------------"
-            print result
-            print "--------------- sjm ----------------------"
-            print "Error: Private key file {0} not found.".format(args.key)
+            key_fname = read_cert_input('key')
+            # print "Error: Private key file {0} not found.".format(args.key)
             exitcode = 1
         if args.crt is not None and os.path.isfile(os.path.expanduser(args.crt)):
             certs['certificate'] = read_cert_file(args.crt)
+            crt_fname = args.crt
         else:
-            read_cert_input('crt')
-            print "Error: Certificate file {0} not found.".format(args.crt)
+            crt_fname = read_cert_input('crt', key_fname)
+            # print "Error: Certificate file {0} not found.".format(args.crt)
             exitcode = 1
         if args.cacrt is not None:
             if os.path.isfile(os.path.expanduser(args.cacrt)):
