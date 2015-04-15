@@ -509,7 +509,7 @@ def verify_key(key_f, v_f=None):
 
 def verify_crt(crt_f, key_f):
     import subprocess
-    v_cmd = ["openssl", "rsa", "-check", "-noout", "-in", crt_f]
+    v_cmd = ["openssl", "x509", "-noout", "-in", crt_f]
     v_rslt = ''
     try:
         v_input = subprocess.check_output(
