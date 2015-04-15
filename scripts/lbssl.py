@@ -431,7 +431,7 @@ def enumerate_cert_domains(ip, port='443', servername=''):
 
 def read_cert_input(crt_type, verify_f=None):
     import tempfile
-    import subprocess
+    # import subprocess
     label = {
         'key': 'private key',
         'crt': 'certificate',
@@ -444,11 +444,6 @@ def read_cert_input(crt_type, verify_f=None):
         'keyold': ["openssl", "rsa", "-check", "-noout", "-in"],
         'crtold': ["openssl", "x509", "-noout", "-in"],
         'cacrtold': ["openssl", "x509", "-noout", "-in"]
-        }
-    valid_rslt = {
-        'key': 'RSA key ok',
-        'crt': '',
-        'cacrt': ''
         }
     tries = 1
     sentinel = ""
@@ -467,27 +462,7 @@ def read_cert_input(crt_type, verify_f=None):
                 tries += 1
                 print "Invalid input.",
                 rawcert.truncate()
-                continue
-            try:
-                chkinput = subprocess.check_output(
-                    verify_cmd[crt_type],
-                    stderr=subprocess.STDOUT
-                    ).strip('\n')
-                if chkinput != valid_rslt[crt_type]:
-                    # print chkinput
-                    tries += 1
-                    print "Invalid input.",
-                    rawcert.truncate()
-                    continue
-                else:
-                    return rawcert.name
-            except:
-                # print chkinput
-                tries += 1
-                print "Invalid input.",
-                rawcert.truncate()
-                continue
-                # sys.exit(1)
+                # continue
         print "Aborting."
         sys.exit(1)
 
@@ -500,10 +475,12 @@ def verify_key(key_f, v_f=None):
         v_input = subprocess.check_output(
             v_cmd, stderr=subprocess.STDOUT).strip('\n')
         if v_input != v_rslt:
+            print "Bad key.",
             return False
         else:
             return True
     except:
+        print "Bad key.",
         return False
 
 
@@ -515,6 +492,7 @@ def verify_crt(crt_f, key_f):
         v_input = subprocess.check_output(
             v_cmd, stderr=subprocess.STDOUT).strip('\n')
         if v_input != v_rslt:
+            print "Bad certificate.",
             return False
         else:
             cmod_cmd = ["openssl", "x509", "-modulus", "-noout", "-in", crt_f]
@@ -529,7 +507,7 @@ def verify_crt(crt_f, key_f):
                 print "ERROR: The certificate does not match the private key!"
                 return False
     except:
-        print v_input
+        print "Bad certificate.",
         return False
     pass
 
