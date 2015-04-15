@@ -517,8 +517,19 @@ def verify_crt(crt_f, key_f):
         if v_input != v_rslt:
             return False
         else:
-            return True
+            cmod_cmd = ["openssl", "x509", "-modulus", "-noout", "-in", crt_f]
+            kmod_cmd = ["openssl", "rsa", "-modulus", "-noout", "-in", key_f]
+            crt_mod = subprocess.check_output(
+                cmod_cmd, stderr=subprocess.STDOUT).strip('\n')
+            key_mod = subprocess.check_output(
+                kmod_cmd, stderr=subprocess.STDOUT).strip('\n')
+            if crt_mod == key_mod:
+                return True
+            else:
+                print "ERROR: The certificate does not match the private key!"
+                return False
     except:
+        print v_input
         return False
     pass
 
