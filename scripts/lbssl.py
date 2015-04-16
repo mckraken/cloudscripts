@@ -564,12 +564,6 @@ def verify_cacrt(cacrt_f, crt_f):
 if __name__ == "__main__":
     args = process_args()
 
-    pass
-
-
-if __name__ == "__main__":
-    args = process_args()
-
     print args
 
     #
