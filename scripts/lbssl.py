@@ -407,7 +407,8 @@ def enumerate_cert_domains(ip, port='443', servername=''):
         with open(devnull, "w") as fnull:
             if servername != '':
                 rcrt1.write(subprocess.check_output(
-                    "echo | openssl s_client -connect " + ip + ":" + str(port) + " -servername " + servername,
+                    "echo | openssl s_client -connect " + ip + ":" +
+                    str(port) + " -servername " + servername,
                     stderr=fnull,
                     shell=True)
                     )
@@ -448,6 +449,7 @@ def read_cert_input(crt_type, verify_f=None):
     tries = 1
     sentinel = ""
     print "Input the {0} (end with blank line):".format(label[crt_type])
+    # with tempfile.NamedTemporaryFile() as rawcert:
     with tempfile.NamedTemporaryFile(delete=False) as rawcert:
         # verify_cmd[crt_type].append(rawcert.name)
         while tries <= 3:
@@ -464,6 +466,8 @@ def read_cert_input(crt_type, verify_f=None):
                 rawcert.truncate()
                 # continue
         print "Aborting."
+        rawcert.close()
+        os.unlink(rawcert.name)
         sys.exit(1)
 
 
@@ -486,6 +490,7 @@ def verify_key(key_f, v_f=None):
 
 def verify_crt(crt_f, key_f):
     import subprocess
+    from datetime import datetime
     v_cmd = ["openssl", "x509", "-noout", "-in", crt_f]
     v_rslt = ''
     try:
@@ -502,7 +507,22 @@ def verify_crt(crt_f, key_f):
             key_mod = subprocess.check_output(
                 kmod_cmd, stderr=subprocess.STDOUT).strip('\n')
             if crt_mod == key_mod:
-                return True
+                edat_cmd = ["openssl", "x509", "-enddate", "-noout",
+                            "-in", crt_f]
+                crt_edat = subprocess.check_output(
+                    edat_cmd, stderr=subprocess.STDOUT
+                    ).strip('\n').partition('=')[2].rstrip(' GMT')
+                format = '%b %d %H:%M:%S %Y'
+                crt_end = datetime.strptime(crt_edat, format)
+                now_utc = datetime.utcnow()
+                days_to_expiration = (crt_end - now_utc).days
+                if days_to_expiration <= 0:
+                    print "Error:  Certificate has expired."
+                    return False
+                else:
+                    print "Certificate is valid for {0} more days.".format(
+                        days_to_expiration)
+                    return True
             else:
                 print "ERROR: The certificate does not match the private key!"
                 return False
@@ -513,6 +533,37 @@ def verify_crt(crt_f, key_f):
 
 
 def verify_cacrt(cacrt_f, crt_f):
+    import subprocess
+    v_cmd = ["openssl", "x509", "-noout", "-in", cacrt_f]
+    v_rslt = ''
+    try:
+        v_input = subprocess.check_output(
+            v_cmd, stderr=subprocess.STDOUT).strip('\n')
+        if v_input != v_rslt:
+            print '0'
+            print "Bad certificate.",
+            return False
+        else:
+            v_rslt = 'OK'
+            vchain_cmd = ["openssl", "verify", "-CAfile", cacrt_f, crt_f]
+            vchain_out = subprocess.check_output(
+                vchain_cmd, stderr=subprocess.STDOUT).strip('\n')
+            if vchain_out.partition(' ')[2] != v_rslt:
+                print "ERROR: The certificate chain does not",
+                print "verify with the certificate."
+                return False
+            else:
+                return True
+    except:
+        print '1'
+        print "Bad certificate.",
+        return False
+    pass
+
+
+if __name__ == "__main__":
+    args = process_args()
+
     pass
 
 
@@ -580,12 +631,15 @@ if __name__ == "__main__":
     elif args.cmd == 'add':
         exitcode = 0
         certs = dict()
+
         if not args.ssl:
             certs["hostName"] = args.domain
         else:
             certs["enabled"] = True
             certs["securePort"] = 443
-        if args.key is not None and os.path.isfile(os.path.expanduser(args.key)):
+
+        if args.key is not None and os.path.isfile(
+                os.path.expanduser(args.key)):
             if args.ssl:
                 certs['privatekey'] = read_cert_file(args.key)
                 key_fname = args.key
@@ -597,13 +651,16 @@ if __name__ == "__main__":
             key_fname = read_cert_input('key')
             # print "Error: Private key file {0} not found.".format(args.key)
             exitcode = 1
-        if args.crt is not None and os.path.isfile(os.path.expanduser(args.crt)):
+
+        if args.crt is not None and os.path.isfile(
+                os.path.expanduser(args.crt)):
             certs['certificate'] = read_cert_file(args.crt)
             crt_fname = args.crt
         else:
             crt_fname = read_cert_input('crt', key_fname)
             # print "Error: Certificate file {0} not found.".format(args.crt)
             exitcode = 1
+
         if args.cacrt is not None:
             if os.path.isfile(os.path.expanduser(args.cacrt)):
                 certs['intermediateCertificate'] = read_cert_file(args.cacrt)
@@ -612,7 +669,8 @@ if __name__ == "__main__":
                     args.cacrt)
                 exitcode = 1
         else:
-            read_cert_input('cacrt')
+            read_cert_input('cacrt', crt_fname)
+
         if exitcode:
             sys.exit(exitcode)
 
