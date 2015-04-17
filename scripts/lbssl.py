@@ -459,13 +459,15 @@ def read_cert_input(crt_type, verify_f=None):
             rawcert.flush()
             rawcert.seek(0)
             if verify_cmd[crt_type](rawcert.name, verify_f):
-                return rawcert.name
+                # return rawcert.name
+                return rawcert
             else:
                 tries += 1
                 print "Invalid input.",
                 rawcert.truncate()
                 # continue
         print "Aborting."
+        exitcode = 1
         rawcert.close()
         os.unlink(rawcert.name)
         sys.exit(1)
@@ -642,7 +644,9 @@ if __name__ == "__main__":
                 key_fname = args.key
         else:
             tries = 1
-            key_fname = read_cert_input('key')
+            key_f = read_cert_input('key')
+            print type(key_f)
+            print type(key_f.name)
             # print "Error: Private key file {0} not found.".format(args.key)
             exitcode = 1
 
@@ -663,7 +667,7 @@ if __name__ == "__main__":
                     args.cacrt)
                 exitcode = 1
         else:
-            read_cert_input('cacrt', crt_fname)
+            cacrt_fname = read_cert_input('cacrt', crt_fname)
 
         if exitcode:
             sys.exit(exitcode)
