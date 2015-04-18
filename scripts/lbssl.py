@@ -445,7 +445,8 @@ def read_cert_input(crt_type, verify_f=None):
         }
     tries = 1
     sentinel = ""
-    print "Input the {0} (end with blank line):".format(label[crt_type])
+    print "Input the {0} and end with a blank line:".format(label[crt_type]),
+    print "(Enter only a blank line for None)"
     if verify_f is None:
         v_fn = None
     else:
@@ -456,6 +457,8 @@ def read_cert_input(crt_type, verify_f=None):
                 print "Try again (try {0} of 3):".format(tries)
             rawcert.write('\n'.join(iter(raw_input, sentinel)))
             rawcert.flush()
+            if os.stat(rawcert.name).st_size == 0:
+                return None
             rawcert.seek(0)
             if verify_cmd[crt_type](rawcert.name, v_fn):
                 return rawcert
@@ -598,7 +601,9 @@ if __name__ == "__main__":
     #
     # Get the full service catalog from the API
     #
+
     servicecat = get_servicecat(username, apikey)
+
     #
     # Get the needed authentication token from the service catalog
     #
@@ -608,6 +613,7 @@ if __name__ == "__main__":
     #
     mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
                if cat["type"] == "rax:load-balancer"][0]
+
     #
     # Get the base url for the LB API and build the needed other urls
     #
@@ -627,11 +633,15 @@ if __name__ == "__main__":
     # The base LB dictionary, the SSL LB dictionary, and the
     # Certificate Mapping LB dictionary
     #
-    lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
+
+    # lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
+
     # lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
-    lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
+    # lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
 
     if args.cmd == 'list':
+        lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
+        lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
         lst_maps(lbinf["loadBalancer"], lbinf_cmap, args.query)
 
     elif args.cmd == 'add':
@@ -652,6 +662,7 @@ if __name__ == "__main__":
                 print "Trying input from the command line."
             key_f = read_cert_input('key')
             if key_f is None:
+                print "Error:  Private Key is needed to add certificate."
                 cleanup(t_flst, exit=1)
             t_flst.append(key_f)
             key_fn = key_f.name
@@ -668,6 +679,7 @@ if __name__ == "__main__":
                 print "Trying input from the command line."
             crt_f = read_cert_input('crt', key_f)
             if crt_f is None:
+                print "Error:  Certificate is needed."
                 cleanup(t_flst, exit=1)
             t_flst.append(crt_f)
             crt_fn = crt_f.name
@@ -683,21 +695,24 @@ if __name__ == "__main__":
                 print "{0} is not found.".format(args.crt),
                 print "Trying input from the command line."
             cacrt_f = read_cert_input('cacrt', crt_f)
-            if cacrt_f is None:
-                cleanup(t_flst, exit=1)
-            t_flst.append(cacrt_f)
-            cacrt_fn = cacrt_f.name
+            if cacrt_f is not None:
+                t_flst.append(cacrt_f)
+                cacrt_fn = cacrt_f.name
+            else:
+                cacrt_fn = None
+                print "Proceeding without CA Certificate(s)..."
 
-        if not args.ssl:
-            certs["hostName"] = args.domain
-            certs['privateKey'] = read_cert_file(key_fn)
-        else:
+        if args.ssl:
             certs["enabled"] = True
             certs["securePort"] = 443
             certs['privatekey'] = read_cert_file(key_fn)
+        else:
+            certs["hostName"] = args.domain
+            certs['privateKey'] = read_cert_file(key_fn)
 
         certs['certificate'] = read_cert_file(crt_fn)
-        certs['intermediateCertificate'] = read_cert_file(cacrt_fn)
+        if cacrt_fn is not None:
+            certs['intermediateCertificate'] = read_cert_file(cacrt_fn)
 
         cleanup(t_flst, exit=None)
 
@@ -706,17 +721,18 @@ if __name__ == "__main__":
             pprint_dict(certs)
             sys.exit(exitcode)
 
-        if not args.ssl:
-            certdata = dict()
-            certdata['certificateMapping'] = certs
-            add_map(lburl_cmap, hdrs, data=certdata)
-        else:
-            certdata = dict()
+        certdata = dict()
+        if args.ssl:
             certdata['sslTermination'] = certs
             upd_map(lburl_ssl, hdrs, data=certdata)
+        else:
+            certdata['certificateMapping'] = certs
+            add_map(lburl_cmap, hdrs, data=certdata)
 
     elif args.cmd == 'update':
         if not args.ssl:
+            lbinf_cmap = json.loads(
+                requests.get(lburl_cmap, headers=hdrs).content)
             if args.cmid:
                 mycmapid = [cmap["certificateMapping"]["id"] for cmap in
                             lbinf_cmap["certificateMappings"] if
