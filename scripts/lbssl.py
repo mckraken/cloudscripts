@@ -442,14 +442,15 @@ def read_cert_input(crt_type, verify_f=None):
         'key': verify_key,
         'crt': verify_crt,
         'cacrt': verify_cacrt,
-        'keyold': ["openssl", "rsa", "-check", "-noout", "-in"],
-        'crtold': ["openssl", "x509", "-noout", "-in"],
-        'cacrtold': ["openssl", "x509", "-noout", "-in"]
         }
     tries = 1
     sentinel = ""
     print "Input the {0} (end with blank line):".format(label[crt_type])
     # with tempfile.NamedTemporaryFile() as rawcert:
+    if verify_f is None:
+        v_fn = None
+    else:
+        v_fn = verify_f.name
     with tempfile.NamedTemporaryFile(delete=False) as rawcert:
         # verify_cmd[crt_type].append(rawcert.name)
         while tries <= 3:
@@ -458,8 +459,8 @@ def read_cert_input(crt_type, verify_f=None):
             rawcert.write('\n'.join(iter(raw_input, sentinel)))
             rawcert.flush()
             rawcert.seek(0)
-            if verify_cmd[crt_type](rawcert.name, verify_f):
-                return rawcert.name
+            if verify_cmd[crt_type](rawcert.name, v_fn):
+                return rawcert
             else:
                 tries += 1
                 print "Invalid input.",
@@ -468,47 +469,47 @@ def read_cert_input(crt_type, verify_f=None):
         print "Aborting."
         rawcert.close()
         os.unlink(rawcert.name)
-        sys.exit(1)
+        return None
 
 
-def verify_key(key_f, v_f=None):
+def verify_key(k_fn, v_f=None):
     import subprocess
-    v_cmd = ["openssl", "rsa", "-check", "-noout", "-in", key_f]
+    v_cmd = ["openssl", "rsa", "-check", "-noout", "-in", k_fn]
     v_rslt = 'RSA key ok'
     try:
         v_input = subprocess.check_output(
             v_cmd, stderr=subprocess.STDOUT).strip('\n')
         if v_input != v_rslt:
-            print "Bad key.",
+            print "Bad key...",
             return False
         else:
             return True
     except:
-        print "Bad key.",
+        print "Bad key...",
         return False
 
 
-def verify_crt(crt_f, key_f):
+def verify_crt(c_fn, k_fn):
     import subprocess
     from datetime import datetime
-    v_cmd = ["openssl", "x509", "-noout", "-in", crt_f]
+    v_cmd = ["openssl", "x509", "-noout", "-in", c_fn]
     v_rslt = ''
     try:
         v_input = subprocess.check_output(
             v_cmd, stderr=subprocess.STDOUT).strip('\n')
         if v_input != v_rslt:
-            print "Bad certificate.",
+            print "Bad certificate...",
             return False
         else:
-            cmod_cmd = ["openssl", "x509", "-modulus", "-noout", "-in", crt_f]
-            kmod_cmd = ["openssl", "rsa", "-modulus", "-noout", "-in", key_f]
+            cmod_cmd = ["openssl", "x509", "-modulus", "-noout", "-in", c_fn]
+            kmod_cmd = ["openssl", "rsa", "-modulus", "-noout", "-in", k_fn]
             crt_mod = subprocess.check_output(
                 cmod_cmd, stderr=subprocess.STDOUT).strip('\n')
             key_mod = subprocess.check_output(
                 kmod_cmd, stderr=subprocess.STDOUT).strip('\n')
             if crt_mod == key_mod:
                 edat_cmd = ["openssl", "x509", "-enddate", "-noout",
-                            "-in", crt_f]
+                            "-in", c_fn]
                 crt_edat = subprocess.check_output(
                     edat_cmd, stderr=subprocess.STDOUT
                     ).strip('\n').partition('=')[2].rstrip(' GMT')
@@ -527,25 +528,25 @@ def verify_crt(crt_f, key_f):
                 print "ERROR: The certificate does not match the private key!"
                 return False
     except:
-        print "Bad certificate.",
+        print "Bad certificate...",
         return False
     pass
 
 
-def verify_cacrt(cacrt_f, crt_f):
+def verify_cacrt(cac_fn, c_fn):
     import subprocess
-    v_cmd = ["openssl", "x509", "-noout", "-in", cacrt_f]
+    v_cmd = ["openssl", "x509", "-noout", "-in", cac_fn]
     v_rslt = ''
     try:
         v_input = subprocess.check_output(
             v_cmd, stderr=subprocess.STDOUT).strip('\n')
         if v_input != v_rslt:
             print '0'
-            print "Bad certificate.",
+            print "Bad certificate...",
             return False
         else:
             v_rslt = 'OK'
-            vchain_cmd = ["openssl", "verify", "-CAfile", cacrt_f, crt_f]
+            vchain_cmd = ["openssl", "verify", "-CAfile", cac_fn, c_fn]
             vchain_out = subprocess.check_output(
                 vchain_cmd, stderr=subprocess.STDOUT).strip('\n')
             if vchain_out.partition(' ')[2] != v_rslt:
@@ -556,9 +557,16 @@ def verify_cacrt(cacrt_f, crt_f):
                 return True
     except:
         print '1'
-        print "Bad certificate.",
+        print "Bad certificate...",
         return False
     pass
+
+
+def close_and_exit(f_lst, ecode=1):
+    for item in f_lst:
+        item.close
+        os.unlink(item.name)
+    sys.exit(ecode)
 
 
 if __name__ == "__main__":
@@ -625,6 +633,7 @@ if __name__ == "__main__":
     elif args.cmd == 'add':
         exitcode = 0
         certs = dict()
+        t_flst = []
 
         if not args.ssl:
             certs["hostName"] = args.domain
@@ -634,38 +643,61 @@ if __name__ == "__main__":
 
         if args.key is not None and os.path.isfile(
                 os.path.expanduser(args.key)):
+            if not verify_key(args.key):
+                print "(in {0})".format(args.key)
+                close_and_exit(t_flst)
+            key_fn = args.key
+
             if args.ssl:
                 certs['privatekey'] = read_cert_file(args.key)
-                key_fname = args.key
             else:
                 certs['privateKey'] = read_cert_file(args.key)
-                key_fname = args.key
+
         else:
-            tries = 1
-            key_fname = read_cert_input('key')
-            # print "Error: Private key file {0} not found.".format(args.key)
-            exitcode = 1
+            if args.key is not None:
+                print "{0} is not found.".format(args.key),
+                print "Trying input from the command line."
+            key_f = read_cert_input('key')
+            if key_f is None:
+                close_and_exit(t_flst)
+            t_flst.append(key_f)
+            key_fn = key_f.name
 
         if args.crt is not None and os.path.isfile(
                 os.path.expanduser(args.crt)):
+            if not verify_crt(args.crt, key_fn):
+                print "(in {0})".format(args.crt)
+                close_and_exit(t_flst)
+            crt_fn = args.crt
             certs['certificate'] = read_cert_file(args.crt)
-            crt_fname = args.crt
         else:
-            crt_fname = read_cert_input('crt', key_fname)
-            # print "Error: Certificate file {0} not found.".format(args.crt)
-            exitcode = 1
+            if args.crt is not None:
+                print "{0} is not found.".format(args.crt),
+                print "Trying input from the command line."
+            crt_f = read_cert_input('crt', key_f)
+            if crt_f is None:
+                close_and_exit(t_flst)
+            t_flst.append(crt_f)
+            crt_fn = crt_f.name
 
-        if args.cacrt is not None:
-            if os.path.isfile(os.path.expanduser(args.cacrt)):
-                certs['intermediateCertificate'] = read_cert_file(args.cacrt)
-            else:
-                print "Error: CA Certificate file {0} not found.".format(
-                    args.cacrt)
-                exitcode = 1
+        if os.path.isfile(os.path.expanduser(args.cacrt)):
+            if not verify_cacrt(args.cacrt, crt_fn):
+                print "(in {0})".format(args.cacrt)
+                close_and_exit(t_flst)
+            certs['intermediateCertificate'] = read_cert_file(args.cacrt)
         else:
-            read_cert_input('cacrt', crt_fname)
+            if args.cacrt is not None:
+                print "{0} is not found.".format(args.crt),
+                print "Trying input from the command line."
+            cacrt_f = read_cert_input('cacrt', crt_f)
+            if cacrt_f is None:
+                close_and_exit(t_flst)
+            t_flst.append(cacrt_f)
+            cacrt_fn = crt_f.name
 
+        exitcode = 1
         if exitcode:
+            close_and_exit(t_flst)
             sys.exit(exitcode)
 
         if not args.ssl:
