@@ -446,13 +446,11 @@ def read_cert_input(crt_type, verify_f=None):
     tries = 1
     sentinel = ""
     print "Input the {0} (end with blank line):".format(label[crt_type])
-    # with tempfile.NamedTemporaryFile() as rawcert:
     if verify_f is None:
         v_fn = None
     else:
         v_fn = verify_f.name
     with tempfile.NamedTemporaryFile(delete=False) as rawcert:
-        # verify_cmd[crt_type].append(rawcert.name)
         while tries <= 3:
             if tries != 1:
                 print "Try again (try {0} of 3):".format(tries)
@@ -465,7 +463,6 @@ def read_cert_input(crt_type, verify_f=None):
                 tries += 1
                 print "Invalid input.",
                 rawcert.truncate()
-                # continue
         print "Aborting."
         rawcert.close()
         os.unlink(rawcert.name)
