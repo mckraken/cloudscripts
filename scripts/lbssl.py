@@ -544,14 +544,19 @@ def verify_cacrt(cac_fn, c_fn):
         else:
             v_rslt = 'OK'
             vchain_cmd = ["openssl", "verify", "-CAfile", cac_fn, c_fn]
-            vchain_out = subprocess.check_output(
-                vchain_cmd, stderr=subprocess.STDOUT).strip('\n')
-            if vchain_out.partition(' ')[2] != v_rslt:
-                print "ERROR: The certificate chain does not",
-                print "verify with the certificate."
+            try:
+                vchain_out = subprocess.check_output(
+                    vchain_cmd, stderr=subprocess.STDOUT).strip('\n')
+                if vchain_out.partition(' ')[2] != v_rslt:
+                    print "ERROR: The certificate chain does not",
+                    print "verify with the certificate."
+                    return False
+                else:
+                    return True
+            except:
+                print "ERROR: The certificate chain does not fully verify with",
+                print "certificate. Check your input or certificate chain."
                 return False
-            else:
-                return True
     except:
         print '1'
         print "Bad certificate...",
@@ -559,11 +564,13 @@ def verify_cacrt(cac_fn, c_fn):
     pass
 
 
-def close_and_exit(f_lst, ecode=1):
+def cleanup(f_lst, exit=None):
     for item in f_lst:
         item.close
         os.unlink(item.name)
-    sys.exit(ecode)
+    del f_lst[:]
+    if exit is not None:
+        sys.exit(exit)
 
 
 if __name__ == "__main__":
@@ -632,23 +639,12 @@ if __name__ == "__main__":
         certs = dict()
         t_flst = []
 
-        if not args.ssl:
-            certs["hostName"] = args.domain
-        else:
-            certs["enabled"] = True
-            certs["securePort"] = 443
-
         if args.key is not None and os.path.isfile(
                 os.path.expanduser(args.key)):
             if not verify_key(args.key):
                 print "(in {0})".format(args.key)
-                close_and_exit(t_flst)
+                cleanup(t_flst, exit=1)
             key_fn = args.key
-
-            if args.ssl:
-                certs['privatekey'] = read_cert_file(args.key)
-            else:
-                certs['privateKey'] = read_cert_file(args.key)
 
         else:
             if args.key is not None:
@@ -656,7 +652,7 @@ if __name__ == "__main__":
                 print "Trying input from the command line."
             key_f = read_cert_input('key')
             if key_f is None:
-                close_and_exit(t_flst)
+                cleanup(t_flst, exit=1)
             t_flst.append(key_f)
             key_fn = key_f.name
 
@@ -664,37 +660,50 @@ if __name__ == "__main__":
                 os.path.expanduser(args.crt)):
             if not verify_crt(args.crt, key_fn):
                 print "(in {0})".format(args.crt)
-                close_and_exit(t_flst)
+                cleanup(t_flst, exit=1)
             crt_fn = args.crt
-            certs['certificate'] = read_cert_file(args.crt)
         else:
             if args.crt is not None:
                 print "{0} is not found.".format(args.crt),
                 print "Trying input from the command line."
             crt_f = read_cert_input('crt', key_f)
             if crt_f is None:
-                close_and_exit(t_flst)
+                cleanup(t_flst, exit=1)
             t_flst.append(crt_f)
             crt_fn = crt_f.name
 
-        if os.path.isfile(os.path.expanduser(args.cacrt)):
+        if args.cacrt is not None and os.path.isfile(
+                os.path.expanduser(args.cacrt)):
             if not verify_cacrt(args.cacrt, crt_fn):
                 print "(in {0})".format(args.cacrt)
-                close_and_exit(t_flst)
-            certs['intermediateCertificate'] = read_cert_file(args.cacrt)
+                cleanup(t_flst, exit=1)
+            cacrt_fn = args.cacrt
         else:
             if args.cacrt is not None:
                 print "{0} is not found.".format(args.crt),
                 print "Trying input from the command line."
             cacrt_f = read_cert_input('cacrt', crt_f)
             if cacrt_f is None:
-                close_and_exit(t_flst)
+                cleanup(t_flst, exit=1)
             t_flst.append(cacrt_f)
-            cacrt_fn = crt_f.name
+            cacrt_fn = cacrt_f.name
+
+        if not args.ssl:
+            certs["hostName"] = args.domain
+            certs['privateKey'] = read_cert_file(key_fn)
+        else:
+            certs["enabled"] = True
+            certs["securePort"] = 443
+            certs['privatekey'] = read_cert_file(key_fn)
+
+        certs['certificate'] = read_cert_file(crt_fn)
+        certs['intermediateCertificate'] = read_cert_file(cacrt_fn)
+
+        cleanup(t_flst, exit=None)
 
         exitcode = 1
         if exitcode:
-            close_and_exit(t_flst)
+            pprint_dict(certs)
             sys.exit(exitcode)
 
         if not args.ssl:
