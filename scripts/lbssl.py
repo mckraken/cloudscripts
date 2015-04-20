@@ -580,7 +580,7 @@ def cleanup(f_lst, exit=None):
 if __name__ == "__main__":
     args = process_args()
 
-    print args
+    # print args
 
     #
     # Set up all the variables
@@ -633,10 +633,11 @@ if __name__ == "__main__":
     # Call the API and build dictionaries of the resulting calls.
     # The base LB dictionary, the SSL LB dictionary, and the
     # Certificate Mapping LB dictionary
+
     #
-
+    # Moved the following to where used to not slow down other calls
+    #
     # lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
-
     # lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
     # lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
 
@@ -652,6 +653,9 @@ if __name__ == "__main__":
         t_flst = []
 
         if args.cmd == "update" and not args.ssl:
+            #
+            # Search certificate mappings for ID using either domain or ID
+            #
             lbinf_cmap = json.loads(
                 requests.get(lburl_cmap, headers=hdrs).content)
             if args.cmid:
@@ -763,7 +767,8 @@ if __name__ == "__main__":
 
         cleanup(t_flst, exit=None)
 
-        exitcode = 1
+        # Used for debugging input
+        # exitcode = 1
         if exitcode:
             pprint_dict(certs)
             sys.exit(exitcode)
