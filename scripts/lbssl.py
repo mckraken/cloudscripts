@@ -298,7 +298,11 @@ def process_args():
     subparser_upd.add_argument(
         'lbid', metavar="LB-ID",
         help='The id of the load balancer.')
-    subparser_upd.add_argument(
+    upd_cmap_or_ssl = subparser_upd.add_mutually_exclusive_group()
+    upd_cmap_or_ssl.add_argument(
+        '--ssl', action='store_true',
+        help='Update the default SSL certificate on the load balancer.')
+    upd_cmap_or_ssl.add_argument(
         '--domain', metavar="DOMAIN",
         help='The hostname of the certificate to update.')
     subparser_upd.add_argument(
@@ -313,9 +317,6 @@ def process_args():
     subparser_upd.add_argument(
         '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
         help='The filename containing the intermediate certificate(s).')
-    subparser_upd.add_argument(
-        '--ssl', action='store_true',
-        help='Update the default SSL certificate on the load balancer.')
 
     subparser_del = subparser.add_parser(
         'delete', help='delete certificate mapping')
@@ -644,73 +645,119 @@ if __name__ == "__main__":
         lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
         lst_maps(lbinf["loadBalancer"], lbinf_cmap, args.query)
 
-    elif args.cmd == 'add':
+    elif args.cmd == 'add' or args.cmd == 'update':
         exitcode = 0
         certs = dict()
+        key_fn = crt_fn = cacrt_fn = None
         t_flst = []
+
+        if args.cmd == "update" and not args.ssl:
+            lbinf_cmap = json.loads(
+                requests.get(lburl_cmap, headers=hdrs).content)
+            if args.cmid:
+                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
+                            lbinf_cmap["certificateMappings"] if
+                            cmap["certificateMapping"]["id"] == args.cmid]
+            elif args.domain:
+                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
+                            lbinf_cmap["certificateMappings"] if
+                            cmap["certificateMapping"]["hostName"] ==
+                            args.domain]
+            else:
+                print "Error: One of either --domain (hostname) or --cmap-id",
+                print "must be specified for which configuration to update."
+                cleanup(t_flst, exit=1)
+            if not mycmapid:
+                print "Error: The specified certificate mapping was not found."
+                cleanup(t_flst, exit=1)
 
         if args.key is not None and os.path.isfile(
                 os.path.expanduser(args.key)):
             if not verify_key(args.key):
                 print "(in {0})".format(args.key)
                 cleanup(t_flst, exit=1)
-            key_fn = args.key
-
+            else:
+                key_fn = args.key
         else:
             if args.key is not None:
                 print "{0} is not found.".format(args.key),
                 print "Trying input from the command line."
             key_f = read_cert_input('key')
-            if key_f is None:
+            if key_f is not None:
+                t_flst.append(key_f)
+                key_fn = key_f.name
+            elif args.cmd == "add":
                 print "Error:  Private Key is needed to add certificate."
                 cleanup(t_flst, exit=1)
-            t_flst.append(key_f)
-            key_fn = key_f.name
+            elif args.cmd == "update":
+                print "Proceeding with no update to the private key."
+            else:
+                print "Error:  Unspecified error."
+                cleanup(t_flst, exit=1)
 
         if args.crt is not None and os.path.isfile(
                 os.path.expanduser(args.crt)):
             if not verify_crt(args.crt, key_fn):
                 print "(in {0})".format(args.crt)
                 cleanup(t_flst, exit=1)
-            crt_fn = args.crt
+            else:
+                crt_fn = args.crt
         else:
             if args.crt is not None:
                 print "{0} is not found.".format(args.crt),
                 print "Trying input from the command line."
             crt_f = read_cert_input('crt', key_f)
-            if crt_f is None:
+            if crt_f is not None:
+                t_flst.append(crt_f)
+                crt_fn = crt_f.name
+            elif args.cmd == "add":
                 print "Error:  Certificate is needed."
                 cleanup(t_flst, exit=1)
-            t_flst.append(crt_f)
-            crt_fn = crt_f.name
+            elif args.cmd == "update":
+                print "Proceeding with no update to the certificate."
+            else:
+                print "Error:  Unspecified error."
+                cleanup(t_flst, exit=1)
 
         if args.cacrt is not None and os.path.isfile(
                 os.path.expanduser(args.cacrt)):
             if not verify_cacrt(args.cacrt, crt_fn):
                 print "(in {0})".format(args.cacrt)
                 cleanup(t_flst, exit=1)
-            cacrt_fn = args.cacrt
+            else:
+                cacrt_fn = args.cacrt
         else:
             if args.cacrt is not None:
-                print "{0} is not found.".format(args.crt),
+                print "{0} is not found.".format(args.cacrt),
                 print "Trying input from the command line."
             cacrt_f = read_cert_input('cacrt', crt_f)
             if cacrt_f is not None:
                 t_flst.append(cacrt_f)
                 cacrt_fn = cacrt_f.name
-            else:
-                cacrt_fn = None
+            elif args.cmd == "add" or args.cmd == "update":
                 print "Proceeding without CA Certificate(s)..."
+            else:
+                print "Error:  Unspecified error."
+                cleanup(t_flst, exit=1)
+
+        if (key_fn is None and crt_fn is None and
+                cacrt_fn is None and args.domain is None):
+            print "Error: Nothing to update"
+            cleanup(t_flst, exit=1)
 
         if args.ssl:
             certs["enabled"] = True
             certs["securePort"] = 443
-            certs['privatekey'] = read_cert_file(key_fn)
+            if key_fn is not None:
+                certs['privatekey'] = read_cert_file(key_fn)
         else:
-            certs["hostName"] = args.domain
-            certs['privateKey'] = read_cert_file(key_fn)
+            if args.domain is not None:
+                certs["hostName"] = args.domain
+            if key_fn is not None:
+                certs['privateKey'] = read_cert_file(key_fn)
 
-        certs['certificate'] = read_cert_file(crt_fn)
+        if crt_fn is not None:
+            certs['certificate'] = read_cert_file(crt_fn)
         if cacrt_fn is not None:
             certs['intermediateCertificate'] = read_cert_file(cacrt_fn)
 
@@ -727,79 +774,11 @@ if __name__ == "__main__":
             upd_map(lburl_ssl, hdrs, data=certdata)
         else:
             certdata['certificateMapping'] = certs
-            add_map(lburl_cmap, hdrs, data=certdata)
-
-    elif args.cmd == 'update':
-        if not args.ssl:
-            lbinf_cmap = json.loads(
-                requests.get(lburl_cmap, headers=hdrs).content)
-            if args.cmid:
-                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                            lbinf_cmap["certificateMappings"] if
-                            cmap["certificateMapping"]["id"] == args.cmid]
-            elif args.domain:
-                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                            lbinf_cmap["certificateMappings"] if
-                            cmap["certificateMapping"]["hostName"] ==
-                            args.domain]
-            else:
-                print "Error: One of either --domain (hostname) or --cmap-id",
-                print "must be specified for which configuration to update."
-                sys.exit(1)
-            if not mycmapid:
-                print "Error: The specified certificate mapping was not found."
-                sys.exit(1)
-
-        certs = dict()
-        exitcode = 0
-        update = 0
-        if args.domain and not args.ssl:
-            certs["hostName"] = args.domain
-            update = 1
-        if args.ssl:
-            certs["enabled"] = True
-            certs["securePort"] = 443
-        if args.key is not None:
-            if os.path.isfile(os.path.expanduser(args.key)):
-                if args.ssl:
-                    certs['privatekey'] = read_cert_file(args.key)
-                else:
-                    certs['privateKey'] = read_cert_file(args.key)
-                update = 1
-            else:
-                print "Error: Private key file {0} not found.".format(args.key)
-                exitcode = 1
-        if args.crt is not None:
-            if os.path.isfile(os.path.expanduser(args.crt)):
-                certs['certificate'] = read_cert_file(args.crt)
-                update = 1
-            else:
-                print "Error: Certificate file {0} not found.".format(args.crt)
-                exitcode = 1
-        if args.cacrt is not None:
-            if os.path.isfile(os.path.expanduser(args.cacrt)):
-                certs['intermediateCertificate'] = read_cert_file(args.cacrt)
-                update = 1
-            else:
-                print "Error: CA Certificate file {0} not found.".format(
-                    args.cacrt)
-                exitcode = 1
-        if exitcode:
-            sys.exit(exitcode)
-
-        if update:
-            if not args.ssl:
-                certdata = dict()
-                certdata['certificateMapping'] = certs
+            if args.cmd == 'add':
+                add_map(lburl_cmap, hdrs, data=certdata)
+            elif args.cmd == 'update':
                 upd_url = '/'.join([lburl_cmap, str(mycmapid[0])])
                 upd_map(upd_url, hdrs, data=certdata)
-            else:
-                certdata = dict()
-                certdata['sslTermination'] = certs
-                upd_map(lburl_ssl, hdrs, data=certdata)
-        else:
-            print "Error: Nothing to update"
-            sys.exit(1)
 
     elif args.cmd == 'delete':
         if not args.ssl:
