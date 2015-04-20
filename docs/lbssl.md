@@ -1,7 +1,7 @@
 lbssl.py
 ========
 
-There should be no external dependancies beyond regular python.  Please let me know if you find some.  For the "list --query" it does assume a linux OS as it assumes openssl is callable through the subprocess module.
+This is written using python 2.7 and now really depends also on openssl being callable as a subprocess.  This is used to verify the keys and certificates entered.
 
 Authentication
 --------------
