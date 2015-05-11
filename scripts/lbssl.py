@@ -424,7 +424,8 @@ def enumerate_cert_domains(ip, port='443', servername=''):
                     ["openssl", "x509", "-noout", "-text", "-in", rcrt1.name],
                     stderr=fnull).split('\n'):
                 if ("Subject:" in line):
-                    certdom["commonName"] = line.partition("CN=")[2]
+                    certdom["commonName"] =\
+                        line.partition("CN=")[2].partition(",")[0]
                 elif "DNS:" in line:
                     certdom["subjectAlternativeNames"] =\
                         line.replace('DNS:', '').strip().split(', ')
