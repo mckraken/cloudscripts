@@ -4,7 +4,8 @@
 # Rackspace Load Balancer SSL Management Script
 # Copyright (C) 2015 Stephen McCracken - mckraken@mckraken.net
 #
-# Git repository available at http://github.com/mckraken/cloudscripts
+# Git repository available at:
+# https://github.com/mckraken/cloudscripts/blob/master/scripts/lbssl.py
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,8 +19,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-#
+
 
 '''
 ---------------
@@ -487,6 +487,64 @@ def read_cert_input(crt_type, verify_f=None):
         return None
 
 
+#
+# Use crt_f to strip cert out of cacrt_f using diff
+#
+# diff <(openssl s_client -connect 50.57.204.183:443 2>&1 </dev/null | \
+# sed -ne # '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p') \
+# <(openssl s_client -showcerts -connect 50.57.204.183:443 2>&1 </dev/null | \
+# sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p') | \
+# awk '/^>/ {$1="" ; gsub(/^[ \t]+/,"",$0); print $0}'
+
+#
+# get the enddate of a remote cert:
+#
+# openssl s_client -connect 50.57.204.183:443 </dev/null 2>&1 | \
+# openssl x509 -inform PEM -enddate -noout
+
+
+def read_current_certs(ip, port='443', dname=''):
+    pass
+    import tempfile
+    import subprocess
+    import difflib
+    from os import devnull
+    with open(devnull, "w") as null_f:
+        with tempfile.NamedTemporaryFile() as crtchain_f:
+            if dname != '':
+                crtchain_f.write(subprocess.check_output(
+                    "echo | openssl s_client -showcerts -connect " + ip + ":" +
+                    str(port) + " -servername " + dname +
+                    " | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p'",
+                    stderr=null_f,
+                    shell=True))
+            else:
+                crtchain_f.write(subprocess.check_output(
+                    "echo | openssl s_client -showcerts -connect " + ip + ":" +
+                    str(port) +
+                    " | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p'",
+                    stderr=null_f,
+                    shell=True))
+            crtchain_f.flush()
+            crtchain_f.seek(0)
+            with tempfile.NamedTemporaryFile(delete=False) as crt_f:
+                crt_f.write(subprocess.check_output(
+                    "openssl x509 -inform PEM -in " + crtchain_f.name,
+                    stderr=null_f,
+                    shell=True))
+                crt_f.flush()
+                crt_f.seek(0)
+                crtsdiff = difflib.ndiff(crt_f.readlines(),
+                                         crtchain_f.readlines())
+                with tempfile.NamedTemporaryFile(delete=False) as cacrt_f:
+                    cacrt_f.write(''.join(
+                        x[2:] for x in crtsdiff if x.startswith('+ ')))
+                    print crt_f.name
+                    print cacrt_f.name
+                    return {'crt_f': crt_f,
+                            'cacrt_f': cacrt_f}
+
+
 def verify_key(k_fn, v_f=None):
     import subprocess
     v_cmd = ["openssl", "rsa", "-check", "-noout", "-in", k_fn]
@@ -666,6 +724,21 @@ if __name__ == "__main__":
         key_fn = crt_fn = cacrt_fn = None
         t_flst = []
 
+        lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
+        pprint_dict(lbinf)
+        lbipv4 = [ip["address"] for ip in lbinf["loadBalancer"]['virtualIps']
+                  if ip['ipVersion'] == 'IPV4' and
+                  ip['type'] == 'PUBLIC'][0]
+        print lbipv4
+        lbport = lbinf["loadBalancer"]["sslTermination"]["securePort"]
+
+        current_crts = read_current_certs(lbipv4, lbport)
+        t_flst.append(current_crts["crt_f"])
+        t_flst.append(current_crts["cacrt_f"])
+        # cleanup(t_flst, exit=5)
+
+        sys.exit(5)
+
         if args.cmd == "update" and not args.ssl:
             #
             # Search certificate mappings for ID using either domain or ID
@@ -782,7 +855,7 @@ if __name__ == "__main__":
         cleanup(t_flst, exit=None)
 
         # Used for debugging input
-        # exitcode = 1
+        exitcode = 1
         if exitcode:
             pprint_dict(certs)
             sys.exit(exitcode)
