@@ -68,6 +68,9 @@ usage: lbssl.py add [-h] [--domain DOMAIN] --key PRIVATE-KEY-FILE --crt
                     [--ssl]
                     LB-ID
 
+                    If the certificate or key files are not given on the
+                    commandline, then they are read from standard input.
+
 positional arguments:
   LB-ID                 The id of the load balancer.
 
@@ -91,6 +94,9 @@ usage: lbssl.py update [-h] [--domain DOMAIN] [--cmap-id CERT-MAPPING-ID]
                        [--key PRIVATE-KEY-FILE] [--crt CERTIFICATE-FILE]
                        [--cacrt INTERMEDIATE-CERTIFICATE-FILE] [--ssl]
                        LB-ID
+
+                       If the certificate or key files are not given on the
+                       commandline, then they are read from standard input.
 
 positional arguments:
   LB-ID                 The id of the load balancer.
