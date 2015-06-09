@@ -738,35 +738,60 @@ if __name__ == "__main__":
         print lbipv4
         lbport = lbinf["loadBalancer"]["sslTermination"]["securePort"]
 
-        current_crts = read_current_certs(lbipv4, lbport)
-        t_flst.append(current_crts["crt_f"])
-        t_flst.append(current_crts["cacrt_f"])
         # cleanup(t_flst, exit=5)
-
         sys.exit(5)
 
-        if args.cmd == "update" and not args.ssl:
-            #
-            # Search certificate mappings for ID using either domain or ID
-            #
-            lbinf_cmap = json.loads(
-                requests.get(lburl_cmap, headers=hdrs).content)
-            if args.cmid:
-                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                            lbinf_cmap["certificateMappings"] if
-                            cmap["certificateMapping"]["id"] == args.cmid]
-            elif args.domain:
-                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                            lbinf_cmap["certificateMappings"] if
-                            cmap["certificateMapping"]["hostName"] ==
-                            args.domain]
+        if args.cmd == "update":
+
+            try:
+                if lbinf["loadBalancer"]["sslTermination"]["enabled"]:
+                    pass
+                else:
+                    pass
+            except KeyError:
+                print "Error: SSL termination is not configured."
+                cleanup(t_flst, exit=1)
+
+            if not args.ssl:
+                #
+                # Search certificate mappings for ID using either domain or ID
+                #
+                lbinf_cmap = json.loads(
+                    requests.get(lburl_cmap, headers=hdrs).content)
+                if args.cmid:
+                    mycmapid = [cmap["certificateMapping"]["id"] for cmap in
+                                lbinf_cmap["certificateMappings"] if
+                                cmap["certificateMapping"]["id"] == args.cmid]
+                elif args.domain:
+                    mycmapid = [cmap["certificateMapping"]["id"] for cmap in
+                                lbinf_cmap["certificateMappings"] if
+                                cmap["certificateMapping"]["hostName"] ==
+                                args.domain]
+                else:
+                    print "Error:",
+                    print "One of either --domain (hostname) or",
+                    print "--cmap-id must be specified for which",
+                    print "configuration to update."
+                    cleanup(t_flst, exit=1)
+                if not mycmapid:
+                    print "Error:",
+                    print "The specified certificate mapping was not found."
+                    cleanup(t_flst, exit=1)
+                else:
+                    current_cert_files = read_current_certs(
+                        lbipv4,
+                        lbport,
+                        lbinf_cmap["certificateMapping"]["hostName"]
+                        )
             else:
-                print "Error: One of either --domain (hostname) or --cmap-id",
-                print "must be specified for which configuration to update."
-                cleanup(t_flst, exit=1)
-            if not mycmapid:
-                print "Error: The specified certificate mapping was not found."
-                cleanup(t_flst, exit=1)
+                current_cert_files = read_current_certs(
+                    lbipv4,
+                    lbport
+                    )
+            curr_crt_f = current_cert_files["crt_f"]
+            curr_cacrt_f = current_cert_files["cacrt_f"]
+            t_flst.append(curr_crt_f)
+            t_flst.append(curr_cacrt_f)
 
         if args.key is not None and os.path.isfile(
                 os.path.expanduser(args.key)):
