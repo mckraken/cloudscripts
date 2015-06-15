@@ -1,14 +1,25 @@
 #!/usr/bin/python
 
+# cflist.py - Version 0.5
+# List full contents of Rackspace Cloud Files container
+# Copyright (C) 2015 Stephen McCracken - mckraken@mckraken.net
 #
+# Git repository available at:
+# https://github.com/mckraken/cloudscripts/blob/master/scripts/cflist.py
 #
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 #
-#
-#
-#
-#
-#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 
 
 import os
@@ -16,7 +27,6 @@ import json
 import requests
 import argparse
 import sys
-import time
 
 
 def process_args():
@@ -38,7 +48,6 @@ def process_args():
     parser.add_argument(
         'cname', metavar="CONTAINER-NAME",
         help='The name of the Cloud Files container.')
-
 
     return parser.parse_args()
 
@@ -72,7 +81,6 @@ def nullStderr():
 
 def revertStderr():
     sys.stderr = sys.__stderr__
-
 
 
 def get_servicecat(username, apikey):
@@ -111,17 +119,17 @@ if __name__ == "__main__":
     region = check_arg_or_env("region",
                               args.region,
                               "OS_REGION_NAME").lower()
-    
+
     servicecat = get_servicecat(username, apikey)
     token = servicecat["access"]["token"]["id"]
-    
+
     mycfcat = [cat for cat in servicecat["access"]["serviceCatalog"]
                if cat["type"] == "object-store"][0]
-    
+
     cfurlbase = [endp["publicURL"] for endp in mycfcat["endpoints"]
                  if endp["region"].lower() == region][0]
     cfurl = '/'.join([cfurlbase, args.cname])
-    
+
     hdrs = dict()
     hdrs['Content-Type'] = 'application/json'
     hdrs['X-Auth-Token'] = token
@@ -136,4 +144,3 @@ if __name__ == "__main__":
 
     for item in cflst:
         print item
-

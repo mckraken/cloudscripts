@@ -728,6 +728,7 @@ if __name__ == "__main__":
         exitcode = 0
         certs = dict()
         key_fn = crt_fn = cacrt_fn = None
+        # t_flst is a list of the temporary files for cleanup before exit
         t_flst = []
 
         lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
@@ -778,12 +779,14 @@ if __name__ == "__main__":
                     print "The specified certificate mapping was not found."
                     cleanup(t_flst, exit=1)
                 else:
+                    # pull the current certs from the certificate mapping
                     current_cert_files = read_current_certs(
                         lbipv4,
                         lbport,
                         lbinf_cmap["certificateMapping"]["hostName"]
                         )
             else:
+                # pull the current certs from the default ssl configuration
                 current_cert_files = read_current_certs(
                     lbipv4,
                     lbport
