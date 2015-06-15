@@ -1,11 +1,11 @@
 #!/usr/bin/python
 
-# cflist.py - Version 0.2
-# List full contents of Rackspace Cloud Files container
+# cfupload.py - Version 0.1
+# Upload objects to a Rackspace Cloud Files container
 # Copyright (C) 2015 Stephen McCracken - mckraken@mckraken.net
 #
 # Git repository available at:
-# https://github.com/mckraken/cloudscripts/blob/master/scripts/cflist.py
+# https://github.com/mckraken/cloudscripts/blob/master/scripts/cfupload.py
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@ import json
 import requests
 import argparse
 import sys
+import hashlib
 
 
 def process_args():
@@ -48,6 +49,9 @@ def process_args():
     parser.add_argument(
         'cname', metavar="CONTAINER-NAME",
         help='The name of the Cloud Files container.')
+    parser.add_argument(
+        'objlst', metavar="OBJECT-NAME", nargs='+',
+        help='The name of the object(s) to upload to the container.')
 
     return parser.parse_args()
 
@@ -131,16 +135,13 @@ if __name__ == "__main__":
     cfurl = '/'.join([cfurlbase, args.cname])
 
     hdrs = dict()
-    hdrs['Content-Type'] = 'application/json'
     hdrs['X-Auth-Token'] = token
 
-    cflst = []
-    cfreq = requests.get(cfurl, headers=hdrs)
-    while cfreq.status_code != 204:
-        cfsublst = cfreq.content.rstrip('\n').split('\n')
-        cfnewurl = '='.join([cfurl + '?' + 'marker', cfsublst[-1]])
-        cfreq = requests.get(cfnewurl, headers=hdrs)
-        cflst.extend(cfsublst)
-
-    for item in cflst:
-        print item
+    for item in args.objlst:
+        cfobjurl = '/'.join([cfurl, item])
+        with open(item, 'rb') as openobj:
+            obj_md5sum = hashlib.md5(openobj.read()).hexdigest()
+            openobj.seek(0)
+            hdrs['ETag'] = obj_md5sum
+            cfreq = requests.put(cfobjurl, data=openobj, headers=hdrs)
+            print cfreq
