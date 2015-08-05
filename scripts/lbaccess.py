@@ -61,25 +61,28 @@ def wait_for_status(url, hdrs):
             time.sleep(15)
 
 
-def add_map(url, headers=None, data={}):
+def upd_lb(rmethod, url, headers=None, data={}):
     jdata = json.dumps(data)
-    status_url = url.rpartition('/ssl')[0]
-    print "Checking current load balancer status.",
+    status_url = url.rpartition('/')[0]
+    print "Checking load balancer",
     if wait_for_status(status_url, headers) == 'ERROR':
         print "Load balancer is in ERROR state."
         sys.exit(1)
 
-    crtadd = requests.post(url, headers=headers, data=jdata)
+    nullStderr()
+    print "Sending update to load balancer:",
+    lbupd = rmethod(url, headers=headers, data=jdata)
+    revertStderr()
 
-    if crtadd.status_code == 202:
+    if lbupd.status_code in [200, 202]:
         if wait_for_status(status_url, headers) == 'ERROR':
             print "Load balancer is in ERROR state."
             sys.exit(1)
         print "Success!"
-        return 0
+        return lbupd
     else:
         print "Error (code {0}):\n{1}".format(
-            crtadd.status_code, crtadd.json()["message"])
+            lbupd.status_code, lbupd.json()["message"])
 
 
 def process_args():
@@ -284,56 +287,35 @@ if __name__ == "__main__":
     print "Region:", lbreg
     print "LB id: ", mylbid_l[0]
     print "LB IP: ", mylbip
-    lbaccurl = '/'.join([mylburl, 'accesslist'])
+    lb_alst_url = '/'.join([mylburl, 'accesslist'])
 
     if args.cmd == 'list':
-        nullStderr()
-        lbacc = json.loads(requests.get(lbaccurl, headers=hdrs).content)
-        revertStderr()
-        pprint_dict(lbacc)
+        lb_alst = json.loads(
+            upd_lb(requests.get, lb_alst_url, headers=hdrs).content
+            )
+        pprint_dict(lb_alst)
 
     elif args.cmd == 'add':
         if args.listtype is None:
             args.listtype = 'DENY'
-        acc_d = dict()
-        acc_d["accessList"] = []
+        alst_d = dict()
+        alst_d["accessList"] = []
+        #
+        # Build AccessList dictionary
+        #
         for item in args.net:
             item_d = dict()
             try:
                 item_d["address"] = str(netaddr.IPNetwork(item).cidr)
                 item_d["type"] = args.listtype
-                acc_d["accessList"].append(item_d)
+                alst_d["accessList"].append(item_d)
             except netaddr.core.AddrFormatError:
-                print "Not a valid IPv4 address or subnet:", item
+                print "Invalid IPv4 address or subnet:", item
                 sys.exit(1)
-        jdata = json.dumps(acc_d)
-        nullStderr()
-        alistupd = requests.post(lbaccurl, headers=hdrs, data=jdata)
-        revertStderr()
-        if alistupd.status_code == 202:
-            status_url = lbaccurl.partition('/accesslist')[0]
-            if wait_for_status(status_url, hdrs) == 'ERROR':
-                print "Load balancer is in ERROR state."
-                sys.exit(1)
-            print "Success!"
-        else:
-            print "Error (code {0}):\n{1}".format(
-                alistupd.status_code, alistupd.json()["message"])
+        upd_lb(requests.post, lb_alst_url, headers=hdrs, data=alst_d)
 
     elif args.cmd == 'delete':
         pass
 
     elif args.cmd == 'delete-all':
-        nullStderr()
-        alistdelall = requests.delete(lbaccurl, headers=hdrs)
-        revertStderr()
-        if alistdelall.status_code == 202:
-            status_url = lbaccurl.partition('/accesslist')[0]
-            if wait_for_status(status_url, hdrs) == 'ERROR':
-                print "Load balancer is in ERROR state."
-                sys.exit(1)
-            print "Success!"
-        else:
-            print "Error (code {0}):\n{1}".format(
-                alistdelall.status_code, alistdelall.json()["message"])
-        pass
+        upd_lb(requests.delete, lb_alst_url, headers=hdrs)
