@@ -1,14 +1,26 @@
 #!/usr/bin/python
 
 #
+# lbaccess.py - Version 0.1
+# Rackspace Load Balancer Access List Management Script
+# Copyright (C) 2015 Stephen McCracken - mckraken@mckraken.net
 #
+# Git repository available at http://github.com/mckraken/cloudscripts
 #
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 #
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 #
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-#
-#
-#
+
 
 '''
 ---------------
@@ -23,6 +35,7 @@ import requests
 import argparse
 import sys
 import time
+import netaddr
 
 
 def pprint_dict(item):
@@ -35,42 +48,17 @@ def pprint_dict(item):
 def wait_for_status(url, hdrs):
     start = time.time()
     while True:
+        nullStderr()
         lbstatus = json.loads(
             requests.get(url, headers=hdrs).content
             )["loadBalancer"]["status"]
+        revertStderr()
         print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
             lbstatus, (time.time() - start))
         if lbstatus in ['ACTIVE', 'ERROR']:
             return lbstatus
         else:
             time.sleep(15)
-
-
-def lst_maps(lbd, cmapd, query_certs=False):
-    try:
-        if lbd["sslTermination"]["enabled"]:
-            lbipv4 = [ip["address"] for ip in lbd['virtualIps']
-                      if ip['ipVersion'] == 'IPV4' and
-                      ip['type'] == 'PUBLIC'][0]
-            lbport = lbd["sslTermination"]["securePort"]
-            if query_certs:
-                lbd["sslTermination"]["certificateDomains"] =\
-                    enumerate_cert_domains(lbipv4, lbport)
-            if cmapd["certificateMappings"]:
-                if query_certs:
-                    for item in cmapd["certificateMappings"]:
-                        sname = item["certificateMapping"]["hostName"]
-                        item["certificateMapping"]["certificateDomains"] =\
-                            enumerate_cert_domains(
-                                lbipv4, lbport, servername=sname)
-                print "SSL Configuration:"
-                pprint_dict(lbd["sslTermination"])
-                pprint_dict(cmapd["certificateMappings"])
-            else:
-                print "SSL Configuration (No Certificate Mappings found):"
-                pprint_dict(lbd["sslTermination"])
-    except KeyError:
-        print "Error: SSL is not enabled on this load balancer."
 
 
 def add_map(url, headers=None, data={}):
@@ -94,56 +82,6 @@ def add_map(url, headers=None, data={}):
             crtadd.status_code, crtadd.json()["message"])
 
 
-def upd_map(url, headers=None, hostname=None, data={}):
-    jdata = json.dumps(data)
-    status_url = url.rpartition('/ssl')[0]
-    print "Checking current load balancer status."
-    if wait_for_status(status_url, headers) == 'ERROR':
-        print "Load balancer is in ERROR state."
-        sys.exit(1)
-
-    crtupd = requests.put(url, headers=headers, data=jdata)
-
-    if crtupd.status_code == 202:
-        if wait_for_status(status_url, headers) == 'ERROR':
-            print "Load balancer is in ERROR state."
-            sys.exit(1)
-        print "Success!"
-        return 0
-    else:
-        print "Error (code {0}):\n{1}".format(
-            crtupd.status_code, crtupd.json()["message"])
-
-
-def del_maps(url, id_lst=None, headers=''):
-    if id_lst is not None:
-        for cmap_id in id_lst:
-            cmap_delete_url = '/'.join([url, cmap_id])
-            cmapdel = requests.delete(cmap_delete_url, headers=headers)
-            status_url = url.rpartition('/ssl')[0]
-            print "Deleting certificate mapping ID {0} ...".format(cmap_id)
-            if cmapdel.status_code == 202:
-                if wait_for_status(status_url, headers) == 'ERROR':
-                    print "Load balancer is in ERROR state."
-                    sys.exit(1)
-                print "Success!"
-            else:
-                print "Error (code {0}):\n{1}".format(
-                    cmapdel.status_code, cmapdel.json()["message"])
-    else:
-        ssldel = requests.delete(url, headers=headers)
-        status_url = url.rpartition('/ssl')[0]
-        print "Deleting SSL Termination..."
-        if ssldel.status_code == 202:
-            if wait_for_status(status_url, headers) == 'ERROR':
-                print "Load balancer is in ERROR state."
-                sys.exit(1)
-            print "Success!"
-        else:
-            print "Error (code {0}):\n{1}".format(
-                ssldel.status_code, ssldel.json()["message"])
-
-
 def process_args():
     parser = argparse.ArgumentParser(
         description='Manage access lists for a cloud load balancer.')
@@ -155,71 +93,51 @@ def process_args():
         '--apikey', metavar="API_KEY",
         help='The username for the account (or use the OS_PASSWORD '
         'environment variable or the ~/.raxcreds file).')
-    parser.add_argument(
-        '--region', metavar="REGION", dest="region", type=str.lower,
-        choices=['iad', 'dfw', 'ord', 'hkg', 'syd', 'lon'],
-        help='The region for the loadbalancer (or use the OS_REGION_NAME '
-        'environment variable or the ~/.raxcreds file).')
+    # parser.add_argument(
+    #    '--region', metavar="REGION", dest="region", type=str.lower,
+    #    choices=['iad', 'dfw', 'ord', 'hkg', 'syd', 'lon'],
+    #    help='The region for the loadbalancer (or use the OS_REGION_NAME '
+    #    'environment variable or the ~/.raxcreds file).')
     lb_id_ip = parser.add_mutually_exclusive_group(required=True)
     lb_id_ip.add_argument(
-        '--lbid', metavar="LB-ID",
+        '--lbid', metavar="LB-ID", type=int,
         help='The id of the load balancer.')
     lb_id_ip.add_argument(
-        '--lbip', metavar="LB-IP-ADDRESS",
+        '--lbip', metavar="LB-IP",
         help='The IP address of the load balancer.')
 
     subparser = parser.add_subparsers(dest='cmd')
     subparser.required = True
 
-    subparser_lst = subparser.add_parser('list', help='list current access list')
+    subparser.add_parser('list', help='list current access list')
 
-    subparser_add = subparser.add_parser('add', help='add access list')
-    add_allow_deny = subparser_add.add_mutually_exclusive_group(required=True)
+    subparser_add = subparser.add_parser('add', help='Add access list item(s)')
+    add_allow_deny = subparser_add.add_mutually_exclusive_group()
     add_allow_deny.add_argument(
-        '--deny', dest='listtype', action='store_false', metavar='LIST_TYPE',
-        help='define whether it is an Allow or Deny access list.')
+        '--deny', dest='listtype', action='store_const', const='DENY',
+        help='Access list is a DENY list (default).')
     add_allow_deny.add_argument(
-        '--allow', dest='listtype', action='store_true', metavar='LIST_TYPE',
-        help='define whether it is an Allow or Deny access list.')
+        '--allow', dest='listtype', action='store_const', const='ALLOW',
+        help='Access list is an ALLOW list.')
     subparser_add.add_argument(
         'net', metavar="NETWORK", nargs='+',
         help='The network(s) to add to the access list.')
 
-    subparser_upd = subparser.add_parser(
-        'update',
-        help='Update the certificate mapping')
-    subparser_upd.add_argument(
-        '--domain', metavar="DOMAIN",
-        help='The hostname of the certificate to update.')
-    subparser_upd.add_argument(
-        '--cmap-id', metavar="CERT-MAPPING-ID", dest='cmid', type=int,
-        help='The certificate mapping id number to update.')
-    subparser_upd.add_argument(
-        '--key', metavar="PRIVATE-KEY-FILE",
-        help='The filename containing the private key. ')
-    subparser_upd.add_argument(
-        '--crt', metavar="CERTIFICATE-FILE",
-        help='The filename containing the certificate. ')
-    subparser_upd.add_argument(
-        '--cacrt', metavar="INTERMEDIATE-CERTIFICATE-FILE",
-        help='The filename containing the intermediate certificate(s).')
-    subparser_upd.add_argument(
-        '--ssl', action='store_true',
-        help='Update the default SSL certificate on the load balancer.')
-
     subparser_del = subparser.add_parser(
-        'delete', help='delete certificate mapping')
+        'delete', help='delete access list item')
     subparser_del.add_argument(
         'lbid', metavar="LB-ID",
         help='The id of the load balancer.')
-    del_cmap_or_ssl = subparser_del.add_mutually_exclusive_group(required=True)
-    del_cmap_or_ssl.add_argument(
-        '--ssl', action='store_true',
-        help='Delete the main SSL termination configuration.')
-    del_cmap_or_ssl.add_argument(
-        '--cmap-id', metavar="CERTIFICATE-MAPPING-ID",
+    alst_ip_or_id = subparser_del.add_mutually_exclusive_group(required=True)
+    alst_ip_or_id.add_argument(
+        '--listid', metavar="LIST-ID", type=int,
+        help='The access list id.')
+    alst_ip_or_id.add_argument(
+        '--listip', metavar="LIST-IP",
         dest='cmap_ids', nargs='+',
-        help='The id(s) of the certificate mappings to delete.')
+        help='The access list IP address.')
+
+    subparser.add_parser('delete-all', help='Delete the full access list')
 
     return parser.parse_args()
 
@@ -294,12 +212,6 @@ if __name__ == "__main__":
                               args.apikey,
                               "OS_PASSWORD").lower()
     #
-    # region of the load balancer is needed
-    #
-    #region = check_arg_or_env("region",
-    #                          args.region,
-    #                          "OS_REGION_NAME").lower()
-    #
     # Get the full service catalog from the API
     #
     servicecat = get_servicecat(username, apikey)
@@ -318,148 +230,110 @@ if __name__ == "__main__":
     lburlbase = ['/'.join([endp["publicURL"], "loadbalancers"])
                  for endp in mylbcat["endpoints"]]
     #             if endp["region"].lower() == region]
-    #lburl = '/'.join([lburlbase, "loadbalancers", args.lbid])
-    #lburl_ssl = '/'.join([lburl, "ssltermination"])
-    #lburl_cmap = '/'.join([lburl_ssl, "certificatemappings"])
     #
     # Build the HTTP headers dictionary needed for the API calls
     #
     hdrs = dict()
     hdrs['Content-Type'] = 'application/json'
     hdrs['X-Auth-Token'] = token
-    #
-    # Call the API and build dictionaries of the resulting calls.
-    # The base LB dictionary, the SSL LB dictionary, and the
-    # Certificate Mapping LB dictionary
-    #
-    #lbinf = json.loads(requests.get(lburl, headers=hdrs).content)
-    # lbinf_ssl = json.loads(requests.get(lburl_ssl, headers=hdrs).content)
-    #lbinf_cmap = json.loads(requests.get(lburl_cmap, headers=hdrs).content)
 
-    if args.cmd == 'list':
-        for item in lburlbase:
-            print item
-            lbinf = json.loads(requests.get(item, headers=hdrs).content)
-            for lbitem in lbinf["loadBalancers"]:
-                print "Load Balancer ID:", lbitem["id"]
-                acclsturl = '/'.join([item, str(lbitem["id"]), "accesslist"])
-                lbacc = json.loads(requests.get(acclsturl, headers=hdrs).content)
-                pprint_dict(lbacc)
-        # lst_maps(lbinf["loadBalancer"], lbinf_cmap, args.query)
-
-    elif args.cmd == 'add':
-        exitcode = 0
-        certs = dict()
-        if not args.ssl:
-            certs["hostName"] = args.domain
-        else:
-            certs["enabled"] = True
-            certs["securePort"] = 443
-        if os.path.isfile(os.path.expanduser(args.key)):
-            if args.ssl:
-                certs['privatekey'] = read_cert_file(args.key)
-            else:
-                certs['privateKey'] = read_cert_file(args.key)
-        else:
-            print "Error: Private key file {0} not found.".format(args.key)
-            exitcode = 1
-        if os.path.isfile(os.path.expanduser(args.crt)):
-            certs['certificate'] = read_cert_file(args.crt)
-        else:
-            print "Error: Certificate file {0} not found.".format(args.crt)
-            exitcode = 1
-        if args.cacrt is not None:
-            if os.path.isfile(os.path.expanduser(args.cacrt)):
-                certs['intermediateCertificate'] = read_cert_file(args.cacrt)
-            else:
-                print "Error: CA Certificate file {0} not found.".format(
-                    args.cacrt)
-                exitcode = 1
-        if exitcode:
-            sys.exit(exitcode)
-
-        if not args.ssl:
-            certdata = dict()
-            certdata['certificateMapping'] = certs
-            add_map(lburl_cmap, hdrs, data=certdata)
-        else:
-            certdata = dict()
-            certdata['sslTermination'] = certs
-            upd_map(lburl_ssl, hdrs, data=certdata)
-
-    elif args.cmd == 'update':
-        if not args.ssl:
-            if args.cmid:
-                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                            lbinf_cmap["certificateMappings"] if
-                            cmap["certificateMapping"]["id"] == args.cmid]
-            elif args.domain:
-                mycmapid = [cmap["certificateMapping"]["id"] for cmap in
-                            lbinf_cmap["certificateMappings"] if
-                            cmap["certificateMapping"]["hostName"] ==
-                            args.domain]
-            else:
-                print "Error: One of either --domain (hostname) or --cmap-id",
-                print "must be specified for which configuration to update."
-                sys.exit(1)
-            if not mycmapid:
-                print "Error: The specified certificate mapping was not found."
-                sys.exit(1)
-
-        certs = dict()
-        exitcode = 0
-        update = 0
-        if args.domain and not args.ssl:
-            certs["hostName"] = args.domain
-            update = 1
-        if args.ssl:
-            certs["enabled"] = True
-            certs["securePort"] = 443
-        if args.key is not None:
-            if os.path.isfile(os.path.expanduser(args.key)):
-                if args.ssl:
-                    certs['privatekey'] = read_cert_file(args.key)
-                else:
-                    certs['privateKey'] = read_cert_file(args.key)
-                update = 1
-            else:
-                print "Error: Private key file {0} not found.".format(args.key)
-                exitcode = 1
-        if args.crt is not None:
-            if os.path.isfile(os.path.expanduser(args.crt)):
-                certs['certificate'] = read_cert_file(args.crt)
-                update = 1
-            else:
-                print "Error: Certificate file {0} not found.".format(args.crt)
-                exitcode = 1
-        if args.cacrt is not None:
-            if os.path.isfile(os.path.expanduser(args.cacrt)):
-                certs['intermediateCertificate'] = read_cert_file(args.cacrt)
-                update = 1
-            else:
-                print "Error: CA Certificate file {0} not found.".format(
-                    args.cacrt)
-                exitcode = 1
-        if exitcode:
-            sys.exit(exitcode)
-
-        if update:
-            if not args.ssl:
-                certdata = dict()
-                certdata['certificateMapping'] = certs
-                upd_url = '/'.join([lburl_cmap, str(mycmapid[0])])
-                upd_map(upd_url, hdrs, data=certdata)
-            else:
-                certdata = dict()
-                certdata['sslTermination'] = certs
-                upd_map(lburl_ssl, hdrs, data=certdata)
-        else:
-            print "Error: Nothing to update"
+    if args.lbip:
+        try:
+            netaddr.IPAddress(args.lbip)
+        except netaddr.core.AddrFormatError:
+            print "Not a valid IPv4 address:", args.lbip
             sys.exit(1)
 
-    elif args.cmd == 'delete':
-        if not args.ssl:
-            del_maps(lburl_cmap, args.cmap_ids, headers=hdrs)
+    for item in lburlbase:
+        nullStderr()
+        lbinf = json.loads(requests.get(item, headers=hdrs).content)
+        revertStderr()
+        if args.lbid:
+            mylbid_l = [lbitem["id"] for lbitem in
+                        lbinf["loadBalancers"] if
+                        lbitem["id"] == args.lbid]
+            if mylbid_l:
+                lbreg = item.partition('//')[2].partition('.')[0].upper()
+                mylburl = '/'.join([item, str(mylbid_l[0])])
+                # nested list comprehension here:
+                mylbip = [lbaitem["address"] for lbaitem in
+                          [lbitem["virtualIps"] for lbitem in
+                          lbinf["loadBalancers"] if
+                          lbitem["id"] == mylbid_l[0]][0] if
+                          lbaitem["ipVersion"] == "IPV4" and
+                          lbaitem["type"] == "PUBLIC"][0]
+                break
+        elif args.lbip:
+            mylbid_l = [lbitem["id"] for lbitem in
+                        lbinf["loadBalancers"] if
+                        any(lbvips["address"] == args.lbip for
+                            lbvips in lbitem["virtualIps"])
+                        ]
+            if mylbid_l:
+                lbreg = item.partition('//')[2].partition('.')[0].upper()
+                mylburl = '/'.join([item, str(mylbid_l[0])])
+                mylbip = args.lbip
+                break
         else:
-            del_maps(lburl_ssl, headers=hdrs)
-#
+            print "Error: One of either --lbid or --lbip",
+            print "must be specified to find the load balancer."
+            sys.exit(1)
+    if not mylbid_l:
+        print "Error: The specified load balancer was not found."
+        sys.exit(1)
+    print "Region:", lbreg
+    print "LB id: ", mylbid_l[0]
+    print "LB IP: ", mylbip
+    lbaccurl = '/'.join([mylburl, 'accesslist'])
+
+    if args.cmd == 'list':
+        nullStderr()
+        lbacc = json.loads(requests.get(lbaccurl, headers=hdrs).content)
+        revertStderr()
+        pprint_dict(lbacc)
+
+    elif args.cmd == 'add':
+        if args.listtype is None:
+            args.listtype = 'DENY'
+        acc_d = dict()
+        acc_d["accessList"] = []
+        for item in args.net:
+            item_d = dict()
+            try:
+                item_d["address"] = str(netaddr.IPNetwork(item).cidr)
+                item_d["type"] = args.listtype
+                acc_d["accessList"].append(item_d)
+            except netaddr.core.AddrFormatError:
+                print "Not a valid IPv4 address or subnet:", item
+                sys.exit(1)
+        jdata = json.dumps(acc_d)
+        nullStderr()
+        alistupd = requests.post(lbaccurl, headers=hdrs, data=jdata)
+        revertStderr()
+        if alistupd.status_code == 202:
+            status_url = lbaccurl.partition('/accesslist')[0]
+            if wait_for_status(status_url, hdrs) == 'ERROR':
+                print "Load balancer is in ERROR state."
+                sys.exit(1)
+            print "Success!"
+        else:
+            print "Error (code {0}):\n{1}".format(
+                alistupd.status_code, alistupd.json()["message"])
+
+    elif args.cmd == 'delete':
+        pass
+
+    elif args.cmd == 'delete-all':
+        nullStderr()
+        alistdelall = requests.delete(lbaccurl, headers=hdrs)
+        revertStderr()
+        if alistdelall.status_code == 202:
+            status_url = lbaccurl.partition('/accesslist')[0]
+            if wait_for_status(status_url, hdrs) == 'ERROR':
+                print "Load balancer is in ERROR state."
+                sys.exit(1)
+            print "Success!"
+        else:
+            print "Error (code {0}):\n{1}".format(
+                alistdelall.status_code, alistdelall.json()["message"])
+        pass
