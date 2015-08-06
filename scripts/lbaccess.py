@@ -45,7 +45,7 @@ def pprint_dict(item):
                      separators=(',', ': '))
 
 
-def wait_for_status(url, hdrs):
+def wait_for_status(url, hdrs, verbose=False):
     start = time.time()
     while True:
         nullStderr()
@@ -53,32 +53,40 @@ def wait_for_status(url, hdrs):
             requests.get(url, headers=hdrs).content
             )["loadBalancer"]["status"]
         revertStderr()
-        print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
-            lbstatus, (time.time() - start))
+        if verbose:
+            print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
+                lbstatus, (time.time() - start))
         if lbstatus in ['ACTIVE', 'ERROR']:
             return lbstatus
         else:
             time.sleep(15)
 
 
-def upd_lb(rmethod, url, headers=None, data={}):
+def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
     jdata = json.dumps(data)
+    jparams = json.dumps(params)
+    print "jdata:", jdata
+    print "jparams:", jparams
+    print "params:", params
     status_url = url.rpartition('/')[0]
-    print "Checking load balancer",
-    if wait_for_status(status_url, headers) == 'ERROR':
+    if verbose:
+        print "Checking load balancer",
+    if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
         print "Load balancer is in ERROR state."
         sys.exit(1)
 
     nullStderr()
-    print "Sending update to load balancer:",
-    lbupd = rmethod(url, headers=headers, data=jdata)
+    if verbose:
+        print "Sending request to load balancer...",
+    lbupd = rmethod(url, headers=headers, data=jdata, params=params)
     revertStderr()
 
     if lbupd.status_code in [200, 202]:
-        if wait_for_status(status_url, headers) == 'ERROR':
+        if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
             print "Load balancer is in ERROR state."
             sys.exit(1)
-        print "Success!"
+        if verbose:
+            print "Success!"
         return lbupd
     else:
         print "Error (code {0}):\n{1}".format(
@@ -128,17 +136,13 @@ def process_args():
 
     subparser_del = subparser.add_parser(
         'delete', help='delete access list item')
-    subparser_del.add_argument(
-        'lbid', metavar="LB-ID",
-        help='The id of the load balancer.')
     alst_ip_or_id = subparser_del.add_mutually_exclusive_group(required=True)
     alst_ip_or_id.add_argument(
-        '--listid', metavar="LIST-ID", type=int,
-        help='The access list id.')
+        '--listid', metavar="LIST-ID", type=int, nargs='+',
+        help='The access list id(s).')
     alst_ip_or_id.add_argument(
-        '--listip', metavar="LIST-IP",
-        dest='cmap_ids', nargs='+',
-        help='The access list IP address.')
+        '--listip', metavar="LIST-IP", nargs='+',
+        help='The access list IP address(es).')
 
     subparser.add_parser('delete-all', help='Delete the full access list')
 
@@ -256,8 +260,6 @@ if __name__ == "__main__":
                         lbinf["loadBalancers"] if
                         lbitem["id"] == args.lbid]
             if mylbid_l:
-                lbreg = item.partition('//')[2].partition('.')[0].upper()
-                mylburl = '/'.join([item, str(mylbid_l[0])])
                 # nested list comprehension here:
                 mylbip = [lbaitem["address"] for lbaitem in
                           [lbitem["virtualIps"] for lbitem in
@@ -273,15 +275,13 @@ if __name__ == "__main__":
                             lbvips in lbitem["virtualIps"])
                         ]
             if mylbid_l:
-                lbreg = item.partition('//')[2].partition('.')[0].upper()
-                mylburl = '/'.join([item, str(mylbid_l[0])])
                 mylbip = args.lbip
                 break
-        else:
-            print "Error: One of either --lbid or --lbip",
-            print "must be specified to find the load balancer."
-            sys.exit(1)
-    if not mylbid_l:
+
+    if mylbid_l:
+        lbreg = item.partition('//')[2].partition('.')[0].upper()
+        mylburl = '/'.join([item, str(mylbid_l[0])])
+    else:
         print "Error: The specified load balancer was not found."
         sys.exit(1)
     print "Region:", lbreg
@@ -312,10 +312,37 @@ if __name__ == "__main__":
             except netaddr.core.AddrFormatError:
                 print "Invalid IPv4 address or subnet:", item
                 sys.exit(1)
-        upd_lb(requests.post, lb_alst_url, headers=hdrs, data=alst_d)
+        upd_lb(requests.post,
+               lb_alst_url,
+               headers=hdrs,
+               data=alst_d,
+               verbose=True)
 
     elif args.cmd == 'delete':
-        pass
+        lb_alst = json.loads(
+            upd_lb(requests.get, lb_alst_url, headers=hdrs).content
+            )
+        if args.listid:
+            alst_del_l = [str(item["id"]) for item in
+                          lb_alst["accessList"] if
+                          item["id"] in args.listid]
+        elif args.listip:
+            iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
+                                 ip in args.listip]
+            alst_del_l = [str(item["id"]) for item in
+                          lb_alst["accessList"] if
+                          item["address"] in iplist_normalized]
+        alst_del_chunked = (
+            lambda l, n=10: [l[i:i+n] for i in range(0, len(l), n)]
+            )(alst_del_l)
+        for item in alst_del_chunked:
+            params = {"networkItemId": ','.join(item)}
+            print lb_alst_url, params
+            upd_lb(requests.delete,
+                   lb_alst_url,
+                   headers=hdrs,
+                   params=params,
+                   verbose=True)
 
     elif args.cmd == 'delete-all':
-        upd_lb(requests.delete, lb_alst_url, headers=hdrs)
+        upd_lb(requests.delete, lb_alst_url, headers=hdrs, verbose=True)
