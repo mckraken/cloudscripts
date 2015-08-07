@@ -68,6 +68,7 @@ def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
     print "jdata:", jdata
     print "jparams:", jparams
     print "params:", params
+    print "headers:", headers
     status_url = url.rpartition('/')[0]
     if verbose:
         print "Checking load balancer",
@@ -80,6 +81,7 @@ def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
         print "Sending request to load balancer...",
     lbupd = rmethod(url, headers=headers, data=jdata, params=params)
     revertStderr()
+    print lbupd.url
 
     if lbupd.status_code in [200, 202]:
         if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
