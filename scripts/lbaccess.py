@@ -83,10 +83,16 @@ def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
             sys.exit(1)
         return lbupd
     else:
-        log.error(
-            "Error (code {0}):\n{1}".format(
-                lbupd.status_code, lbupd.json()["message"])
-            )
+        try:
+            log.error("Error (code {0}):\n{1}".format(
+                lbupd.status_code,
+                lbupd.json()["message"]))
+        except:
+            try:
+                log.error("Error (code {0}) sending".format(lbupd.status_code) +
+                          " request to load balancer.")
+            except:
+                log.error("Error sending request to load balancer.")
 
 
 def process_args():
@@ -215,7 +221,9 @@ if __name__ == "__main__":
     log.setLevel(logging.DEBUG)
 
     ch = logging.StreamHandler()
+    ch.set_name('console')
     fh = logging.FileHandler('/tmp/lbaccess.log', mode='a')
+    fh.set_name('file')
 
     full_format = logging.Formatter(
         '%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
@@ -262,15 +270,26 @@ if __name__ == "__main__":
     # Get the full service catalog from the API
     #
     servicecat = get_servicecat(username, apikey)
+    log.debug(servicecat['access']['user']['roles'])
     #
     # Get the needed authentication token from the service catalog
     #
-    token = servicecat["access"]["token"]["id"]
+    try:
+        token = servicecat["access"]["token"]["id"]
+    except KeyError:
+        log.error("Authentication Error! Check permissions for '{0}'.".format(
+            username))
+        sys.exit(1)
     #
     # Get the load balancer sub-catalog from the full service catalog
     #
-    mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
-               if cat["type"] == "rax:load-balancer"][0]
+    try:
+        mylbcat = [cat for cat in servicecat["access"]["serviceCatalog"]
+                   if cat["type"] == "rax:load-balancer"][0]
+    except KeyError:
+        log.error("Authentication Error! Check permissions for '{0}'.".format(
+            username))
+        sys.exit(1)
     #
     # Get the base url for the LB API and build the needed other urls
     #
@@ -299,7 +318,7 @@ if __name__ == "__main__":
             mylbid_l = [lbitem["id"] for lbitem in
                         lbinf["loadBalancers"] if
                         lbitem["id"] == args.lbid]
-            if mylbid_l and not args.quiet >= 1:
+            if mylbid_l:
                 # nested list comprehension here:
                 mylbip = [lbaitem["address"] for lbaitem in
                           [lbitem["virtualIps"] for lbitem in
