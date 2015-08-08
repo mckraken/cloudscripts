@@ -54,7 +54,7 @@ def wait_for_status(url, hdrs, verbose=False):
             requests.get(url, headers=hdrs).content
             )["loadBalancer"]["status"]
         revertStderr()
-        log.info(
+        log.debug(
             "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
                 lbstatus, (time.time() - start))
             )
@@ -112,9 +112,13 @@ def process_args():
     lb_id_ip.add_argument(
         '--lbip', metavar="LB-IP",
         help='The IP address of the load balancer.')
-    parser.add_argument(
-        '-q', '--quiet', dest='quiet', action='store_true',
+    noisiness = parser.add_mutually_exclusive_group()
+    noisiness.add_argument(
+        '-q', '--quiet', dest='quiet', action='count',
         help='Suppress output.')
+    noisiness.add_argument(
+        '-v', '--verbose', dest='verbose', action='count',
+        help='More verbose output.')
 
     subparser = parser.add_subparsers(dest='cmd')
     subparser.required = True
@@ -210,8 +214,8 @@ if __name__ == "__main__":
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
 
-    console = logging.StreamHandler()
-    filehandler = logging.FileHandler('/tmp/lbaccess.log', mode='a')
+    ch = logging.StreamHandler()
+    fh = logging.FileHandler('/tmp/lbaccess.log', mode='a')
 
     full_format = logging.Formatter(
         '%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
@@ -222,18 +226,26 @@ if __name__ == "__main__":
     brief_format = logging.Formatter(
         '%(message)s')
 
-    if args.quiet:
-        console.setFormatter(con_format)
-        console.setLevel(logging.ERROR)
+    if args.quiet == 1:
+        ch.setFormatter(con_format)
+        ch.setLevel(logging.ERROR)
+        log.addHandler(ch)
+        fh.setLevel(logging.WARNING)
+    elif args.quiet >= 2:
+        fh.setLevel(logging.WARNING)
+    elif args.verbose >= 1:
+        ch.setFormatter(con_format)
+        ch.setLevel(logging.DEBUG)
+        log.addHandler(ch)
+        fh.setLevel(logging.DEBUG)
     else:
-        console.setFormatter(brief_format)
-        console.setLevel(logging.INFO)
+        ch.setFormatter(brief_format)
+        ch.setLevel(logging.INFO)
+        log.addHandler(ch)
+        fh.setLevel(logging.WARNING)
 
-    filehandler.setFormatter(full_format)
-    filehandler.setLevel(logging.WARNING)
-
-    log.addHandler(console)
-    log.addHandler(filehandler)
+    fh.setFormatter(full_format)
+    log.addHandler(fh)
 
     #
     # Set up all the variables
@@ -340,6 +352,7 @@ if __name__ == "__main__":
             except netaddr.core.AddrFormatError:
                 log.error("Invalid IPv4 address or subnet: {0}".format(item))
                 sys.exit(1)
+            log.debug('Access list: {0}'.format(alst_d))
         upd_lb(requests.post,
                lb_alst_url,
                headers=hdrs,
@@ -363,17 +376,27 @@ if __name__ == "__main__":
                                  ip in args.listip]
             alst_del_l = [str(item["id"]) for item in
                           lb_alst["accessList"] if
-                          item["address"] in iplist_normalized]
-        alst_del_chunked = (
-            lambda l, n=chunklength: [l[i:i+n] for i in range(0, len(l), n)]
-            )(alst_del_l)
-        for item in alst_del_chunked:
-            params = {"id": item}
-            upd_lb(requests.delete,
-                   lb_alst_url,
-                   headers=hdrs,
-                   params=params,
-                   verbose=True)
+                          str(netaddr.IPNetwork(item["address"]).cidr) in
+                          iplist_normalized]
+
+        if alst_del_l:
+            alst_del_chunked = (
+                lambda l, n=chunklength: [l[i:i+n] for i in range(0, len(l), n)]
+                )(alst_del_l)
+            log.debug('Access list to delete: {0}'.format(alst_del_chunked))
+            for item in alst_del_chunked:
+                params = {"id": item}
+                log.debug('Query list: {0}'.format(params))
+                upd_lb(requests.delete,
+                       lb_alst_url,
+                       headers=hdrs,
+                       params=params,
+                       verbose=True)
+        else:
+            if args.listip:
+                log.info('No item found in list: {0}'.format(args.listip))
+            else:
+                log.info('No item found in list: {0}'.format(args.listid))
 
     elif args.cmd == 'delete-all':
         upd_lb(requests.delete, lb_alst_url, headers=hdrs, verbose=True)
