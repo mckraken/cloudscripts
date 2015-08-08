@@ -21,7 +21,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-
 import os
 import json
 import requests
@@ -145,3 +144,28 @@ if __name__ == "__main__":
             hdrs['ETag'] = obj_md5sum
             cfreq = requests.put(cfobjurl, data=openobj, headers=hdrs)
             print cfreq
+
+#
+#
+# From:
+# http://codereview.stackexchange.com/questions/57395/\
+#     split-large-file-into-smaller-files
+#
+# from itertools import chain, islice
+#
+# def chunks(iterable, n):
+#     "chunks(ABCDE,2) => AB CD E"
+#     iterable = iter(iterable)
+#     while True:
+#         yield chain([next(iterable)], islice(iterable, n-1))
+#
+# l = ...
+# file_large = 'large_file.txt'
+# with open(file_large) as bigfile:
+#     for i, lines in enumerate(chunks(bigfile, l)):
+#         file_split = '{}.{}'.format(file_large, i)
+#         with open(file_split, 'w') as f:
+#             f.writelines(lines)
+#
+#
+#
