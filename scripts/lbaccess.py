@@ -36,6 +36,7 @@ import argparse
 import sys
 import time
 import netaddr
+import logging
 
 
 def pprint_dict(item):
@@ -53,9 +54,10 @@ def wait_for_status(url, hdrs, verbose=False):
             requests.get(url, headers=hdrs).content
             )["loadBalancer"]["status"]
         revertStderr()
-        if verbose:
-            print "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
+        log.info(
+            "Current status: {0} ... (elapsed: {1:4.1f} seconds)".format(
                 lbstatus, (time.time() - start))
+            )
         if lbstatus in ['ACTIVE', 'ERROR']:
             return lbstatus
         else:
@@ -64,35 +66,27 @@ def wait_for_status(url, hdrs, verbose=False):
 
 def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
     jdata = json.dumps(data)
-    jparams = json.dumps(params)
-    print "jdata:", jdata
-    print "jparams:", jparams
-    print "params:", params
-    print "headers:", headers
     status_url = url.rpartition('/')[0]
-    if verbose:
-        print "Checking load balancer",
+    log.info("Checking load balancer...")
     if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
-        print "Load balancer is in ERROR state."
+        log.warn("Load balancer is in ERROR state.")
         sys.exit(1)
-
     nullStderr()
-    if verbose:
-        print "Sending request to load balancer...",
+    log.info("Sending request to load balancer...")
     lbupd = rmethod(url, headers=headers, data=jdata, params=params)
     revertStderr()
-    print lbupd.url
+    log.debug('Request URL: ' + lbupd.url)
 
     if lbupd.status_code in [200, 202]:
         if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
-            print "Load balancer is in ERROR state."
+            log.warn("Load balancer is in ERROR state.")
             sys.exit(1)
-        if verbose:
-            print "Success!"
         return lbupd
     else:
-        print "Error (code {0}):\n{1}".format(
-            lbupd.status_code, lbupd.json()["message"])
+        log.warn(
+            "Error (code {0}):\n{1}".format(
+                lbupd.status_code, lbupd.json()["message"])
+            )
 
 
 def process_args():
@@ -118,6 +112,9 @@ def process_args():
     lb_id_ip.add_argument(
         '--lbip', metavar="LB-IP",
         help='The IP address of the load balancer.')
+    parser.add_argument(
+        '-q', '--quiet', dest='quiet', action='store_true',
+        help='Suppress output.')
 
     subparser = parser.add_subparsers(dest='cmd')
     subparser.required = True
@@ -163,14 +160,14 @@ def check_arg_or_env(item, argvar=None, envvar=''):
         try:
             return config.get('raxcreds', item)
         except ConfigParser.NoOptionError:
-            print "You need use a flag, environment variable,",
-            print "or field in ~/.raxcreds."
-            print "Error: No setting for '{0}' was found.".format(item)
+            log.error("You need use a flag, environment variable, " +
+                      "or field in ~/.raxcreds. " +
+                      "No setting for '{0}' was found.".format(item))
             sys.exit(1)
     else:
-        print "You need use a flag, environment variable,",
-        print "or field in ~/.raxcreds."
-        print "Error: No setting for '{0}' was found.".format(item)
+        log.error("You need use a flag, environment variable, " +
+                  "or field in ~/.raxcreds. " +
+                  "No setting for '{0}' was found.".format(item))
         sys.exit(1)
 
 
@@ -207,7 +204,36 @@ def get_servicecat(username, apikey):
 
 
 if __name__ == "__main__":
+
     args = process_args()
+
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.DEBUG)
+
+    console = logging.StreamHandler()
+    filehandler = logging.FileHandler('/tmp/lbaccess.log', mode='a')
+
+    full_format = logging.Formatter(
+        '%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+    con_format = logging.Formatter(
+        '%(asctime)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+    brief_format = logging.Formatter(
+        '%(message)s')
+
+    if args.quiet:
+        console.setFormatter(con_format)
+        console.setLevel(logging.ERROR)
+    else:
+        console.setFormatter(brief_format)
+        console.setLevel(logging.INFO)
+
+    filehandler.setFormatter(full_format)
+    filehandler.setLevel(logging.WARNING)
+
+    log.addHandler(console)
+    log.addHandler(filehandler)
 
     #
     # Set up all the variables
@@ -250,7 +276,7 @@ if __name__ == "__main__":
         try:
             netaddr.IPAddress(args.lbip)
         except netaddr.core.AddrFormatError:
-            print "Not a valid IPv4 address:", args.lbip
+            log.error("Not a valid IPv4 address: {0}".format(args.lbip))
             sys.exit(1)
 
     for item in lburlbase:
@@ -284,11 +310,11 @@ if __name__ == "__main__":
         lbreg = item.partition('//')[2].partition('.')[0].upper()
         mylburl = '/'.join([item, str(mylbid_l[0])])
     else:
-        print "Error: The specified load balancer was not found."
+        log.warn("The specified load balancer was not found.")
         sys.exit(1)
-    print "Region:", lbreg
-    print "LB id: ", mylbid_l[0]
-    print "LB IP: ", mylbip
+    log.info("Region: {0}".format(lbreg))
+    log.info("LB id:  {0}".format(mylbid_l[0]))
+    log.info("LB IP:  {0}".format(mylbip))
     lb_alst_url = '/'.join([mylburl, 'accesslist'])
 
     if args.cmd == 'list':
@@ -312,7 +338,7 @@ if __name__ == "__main__":
                 item_d["type"] = args.listtype
                 alst_d["accessList"].append(item_d)
             except netaddr.core.AddrFormatError:
-                print "Invalid IPv4 address or subnet:", item
+                log.error("Invalid IPv4 address or subnet: {0}".format(item))
                 sys.exit(1)
         upd_lb(requests.post,
                lb_alst_url,
@@ -321,9 +347,13 @@ if __name__ == "__main__":
                verbose=True)
 
     elif args.cmd == 'delete':
+        # The documentation states a maximum of 10 per bulk delete operation
+        chunklength = 10
+
         lb_alst = json.loads(
             upd_lb(requests.get, lb_alst_url, headers=hdrs).content
             )
+        log.debug(lb_alst)
         if args.listid:
             alst_del_l = [str(item["id"]) for item in
                           lb_alst["accessList"] if
@@ -335,11 +365,10 @@ if __name__ == "__main__":
                           lb_alst["accessList"] if
                           item["address"] in iplist_normalized]
         alst_del_chunked = (
-            lambda l, n=10: [l[i:i+n] for i in range(0, len(l), n)]
+            lambda l, n=chunklength: [l[i:i+n] for i in range(0, len(l), n)]
             )(alst_del_l)
         for item in alst_del_chunked:
-            params = {"networkItemId": ','.join(item)}
-            print lb_alst_url, params
+            params = {"id": item}
             upd_lb(requests.delete,
                    lb_alst_url,
                    headers=hdrs,
