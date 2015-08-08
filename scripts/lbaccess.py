@@ -83,7 +83,7 @@ def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
             sys.exit(1)
         return lbupd
     else:
-        log.warn(
+        log.error(
             "Error (code {0}):\n{1}".format(
                 lbupd.status_code, lbupd.json()["message"])
             )
@@ -115,7 +115,7 @@ def process_args():
     noisiness = parser.add_mutually_exclusive_group()
     noisiness.add_argument(
         '-q', '--quiet', dest='quiet', action='count',
-        help='Suppress output.')
+        help='Suppress most output or -qq for all output.')
     noisiness.add_argument(
         '-v', '--verbose', dest='verbose', action='count',
         help='More verbose output.')
@@ -299,7 +299,7 @@ if __name__ == "__main__":
             mylbid_l = [lbitem["id"] for lbitem in
                         lbinf["loadBalancers"] if
                         lbitem["id"] == args.lbid]
-            if mylbid_l:
+            if mylbid_l and not args.quiet >= 1:
                 # nested list comprehension here:
                 mylbip = [lbaitem["address"] for lbaitem in
                           [lbitem["virtualIps"] for lbitem in
@@ -363,6 +363,7 @@ if __name__ == "__main__":
         # The documentation states a maximum of 10 per bulk delete operation
         chunklength = 10
 
+        log.info('Getting current access list...')
         lb_alst = json.loads(
             upd_lb(requests.get, lb_alst_url, headers=hdrs).content
             )
