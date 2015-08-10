@@ -46,7 +46,7 @@ def pprint_dict(item):
                      separators=(',', ': '))
 
 
-def wait_for_status(url, hdrs, verbose=False):
+def wait_for_status(url, hdrs):
     start = time.time()
     while True:
         nullStderr()
@@ -64,11 +64,11 @@ def wait_for_status(url, hdrs, verbose=False):
             time.sleep(15)
 
 
-def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
+def upd_lb(rmethod, url, headers=None, data={}, params={}):
     jdata = json.dumps(data)
     status_url = url.rpartition('/')[0]
     log.info("Checking load balancer...")
-    if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
+    if wait_for_status(status_url, headers) == 'ERROR':
         log.warn("Load balancer is in ERROR state.")
         sys.exit(1)
     nullStderr()
@@ -78,7 +78,7 @@ def upd_lb(rmethod, url, headers=None, data={}, params={}, verbose=False):
     log.debug('Request URL: ' + lbupd.url)
 
     if lbupd.status_code in [200, 202]:
-        if wait_for_status(status_url, headers, verbose=verbose) == 'ERROR':
+        if wait_for_status(status_url, headers) == 'ERROR':
             log.warn("Load balancer is in ERROR state.")
             sys.exit(1)
         return lbupd
@@ -255,6 +255,7 @@ if __name__ == "__main__":
     fh.setFormatter(full_format)
     log.addHandler(fh)
 
+    log.debug(args)
     #
     # Set up all the variables
     #
@@ -326,6 +327,7 @@ if __name__ == "__main__":
                           lbitem["id"] == mylbid_l[0]][0] if
                           lbaitem["ipVersion"] == "IPV4" and
                           lbaitem["type"] == "PUBLIC"][0]
+                mylburlbase = item
                 break
         elif args.lbip:
             mylbid_l = [lbitem["id"] for lbitem in
@@ -335,24 +337,34 @@ if __name__ == "__main__":
                         ]
             if mylbid_l:
                 mylbip = args.lbip
+                mylburlbase = item
                 break
 
     if mylbid_l:
-        lbreg = item.partition('//')[2].partition('.')[0].upper()
-        mylburl = '/'.join([item, str(mylbid_l[0])])
+        lbreg = mylburlbase.partition('//')[2].partition('.')[0].upper()
+        mylburl_l = []
+        for item in mylbid_l:
+            mylburl_l.append('/'.join([mylburlbase, str(item)]))
     else:
         log.warn("The specified load balancer was not found.")
         sys.exit(1)
     log.info("Region: {0}".format(lbreg))
-    log.info("LB id:  {0}".format(mylbid_l[0]))
+    log.info("LB id(s):  {0}".format(mylbid_l))
     log.info("LB IP:  {0}".format(mylbip))
-    lb_alst_url = '/'.join([mylburl, 'accesslist'])
+    log.debug("LB URL:  {0}".format(mylburl_l))
+    lb_alst_url_l = []
+    for item in mylburl_l:
+        lb_alst_url_l.append('/'.join([item, 'accesslist']))
 
     if args.cmd == 'list':
-        lb_alst = json.loads(
-            upd_lb(requests.get, lb_alst_url, headers=hdrs).content
-            )
-        pprint_dict(lb_alst)
+        for lb_alst_url in lb_alst_url_l:
+            # log.info("Access list for LB id: {0}".format(
+            print "Access list for LB id {0}:".format(
+                lb_alst_url.partition('/loadbalancers/')[2].partition('/')[0])
+            lb_alst = json.loads(
+                upd_lb(requests.get, lb_alst_url, headers=hdrs).content
+                )
+            pprint_dict(lb_alst)
 
     elif args.cmd == 'add':
         if args.listtype is None:
@@ -372,51 +384,54 @@ if __name__ == "__main__":
                 log.error("Invalid IPv4 address or subnet: {0}".format(item))
                 sys.exit(1)
             log.debug('Access list: {0}'.format(alst_d))
-        upd_lb(requests.post,
-               lb_alst_url,
-               headers=hdrs,
-               data=alst_d,
-               verbose=True)
+        for lb_alst_url in lb_alst_url_l:
+            upd_lb(requests.post,
+                   lb_alst_url,
+                   headers=hdrs,
+                   data=alst_d)
 
     elif args.cmd == 'delete':
         # The documentation states a maximum of 10 per bulk delete operation
         chunklength = 10
 
-        log.info('Getting current access list...')
-        lb_alst = json.loads(
-            upd_lb(requests.get, lb_alst_url, headers=hdrs).content
-            )
-        log.debug(lb_alst)
-        if args.listid:
-            alst_del_l = [str(item["id"]) for item in
-                          lb_alst["accessList"] if
-                          item["id"] in args.listid]
-        elif args.listip:
-            iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
-                                 ip in args.listip]
-            alst_del_l = [str(item["id"]) for item in
-                          lb_alst["accessList"] if
-                          str(netaddr.IPNetwork(item["address"]).cidr) in
-                          iplist_normalized]
+        for lb_alst_url in lb_alst_url_l:
+            log.info('Getting current access list for LB {0}...'.format(
+                lb_alst_url.partition('/loadbalancers/')[2].partition('/')[0]))
+            lb_alst = json.loads(
+                upd_lb(requests.get, lb_alst_url, headers=hdrs).content
+                )
+            log.debug(lb_alst)
+            if args.listid:
+                alst_del_l = [str(item["id"]) for item in
+                              lb_alst["accessList"] if
+                              item["id"] in args.listid]
+            elif args.listip:
+                iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
+                                     ip in args.listip]
+                alst_del_l = [str(item["id"]) for item in
+                              lb_alst["accessList"] if
+                              str(netaddr.IPNetwork(item["address"]).cidr) in
+                              iplist_normalized]
 
-        if alst_del_l:
-            alst_del_chunked = (
-                lambda l, n=chunklength: [l[i:i+n] for i in range(0, len(l), n)]
-                )(alst_del_l)
-            log.debug('Access list to delete: {0}'.format(alst_del_chunked))
-            for item in alst_del_chunked:
-                params = {"id": item}
-                log.debug('Query list: {0}'.format(params))
-                upd_lb(requests.delete,
-                       lb_alst_url,
-                       headers=hdrs,
-                       params=params,
-                       verbose=True)
-        else:
-            if args.listip:
-                log.info('No item found in list: {0}'.format(args.listip))
+            if alst_del_l:
+                alst_del_chunked = (
+                    lambda l, n=chunklength:
+                    [l[i:i+n] for i in range(0, len(l), n)]
+                    )(alst_del_l)
+                log.debug('Access list to delete: {0}'.format(alst_del_chunked))
+                for item in alst_del_chunked:
+                    params = {"id": item}
+                    log.debug('Query list: {0}'.format(params))
+                    upd_lb(requests.delete,
+                           lb_alst_url,
+                           headers=hdrs,
+                           params=params)
             else:
-                log.info('No item found in list: {0}'.format(args.listid))
+                if args.listip:
+                    log.info('No item found in list: {0}'.format(args.listip))
+                else:
+                    log.info('No item found in list: {0}'.format(args.listid))
 
     elif args.cmd == 'delete-all':
-        upd_lb(requests.delete, lb_alst_url, headers=hdrs, verbose=True)
+        for lb_alst_url in lb_alst_url_l:
+            upd_lb(requests.delete, lb_alst_url, headers=hdrs)
