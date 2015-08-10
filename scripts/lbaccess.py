@@ -357,12 +357,12 @@ if __name__ == "__main__":
         lb_alst_url_l.append('/'.join([item, 'accesslist']))
 
     if args.cmd == 'list':
-        for item in lb_alst_url_l:
+        for lb_alst_url in lb_alst_url_l:
             # log.info("Access list for LB id: {0}".format(
             print "Access list for LB id {0}:".format(
-                item.partition('/loadbalancers/')[2].partition('/')[0])
+                lb_alst_url.partition('/loadbalancers/')[2].partition('/')[0])
             lb_alst = json.loads(
-                upd_lb(requests.get, item, headers=hdrs).content
+                upd_lb(requests.get, lb_alst_url, headers=hdrs).content
                 )
             pprint_dict(lb_alst)
 
@@ -384,9 +384,9 @@ if __name__ == "__main__":
                 log.error("Invalid IPv4 address or subnet: {0}".format(item))
                 sys.exit(1)
             log.debug('Access list: {0}'.format(alst_d))
-        for item in lb_alst_url_l:
+        for lb_alst_url in lb_alst_url_l:
             upd_lb(requests.post,
-                   item,
+                   lb_alst_url,
                    headers=hdrs,
                    data=alst_d)
 
@@ -433,5 +433,5 @@ if __name__ == "__main__":
                     log.info('No item found in list: {0}'.format(args.listid))
 
     elif args.cmd == 'delete-all':
-        for item in lb_alst_url_l:
-            upd_lb(requests.delete, item, headers=hdrs)
+        for lb_alst_url in lb_alst_url_l:
+            upd_lb(requests.delete, lb_alst_url, headers=hdrs)
