@@ -255,7 +255,7 @@ if __name__ == "__main__":
     fh.setFormatter(full_format)
     log.addHandler(fh)
 
-    log.debug(args)
+    # log.debug(args)
     #
     # Set up all the variables
     #
@@ -271,7 +271,7 @@ if __name__ == "__main__":
     # Get the full service catalog from the API
     #
     servicecat = get_servicecat(username, apikey)
-    log.debug(servicecat['access']['user']['roles'])
+    # log.debug(servicecat['access']['user']['roles'])
     #
     # Get the needed authentication token from the service catalog
     #
@@ -364,7 +364,18 @@ if __name__ == "__main__":
             lb_alst = json.loads(
                 upd_lb(requests.get, lb_alst_url, headers=hdrs).content
                 )
-            pprint_dict(lb_alst)
+            # pprint_dict(lb_alst)
+            alst_addr_l = [alst['address'] for alst in lb_alst['accessList']]
+            log.debug(lb_alst)
+            log.debug(alst_addr_l)
+            alst_addrs_ipset = netaddr.IPSet(alst_addr_l)
+            alst_addrs = []
+            for alst_addr in alst_addrs_ipset.iter_cidrs():
+                log.debug(alst_addr)
+                alst_addrs.append(str(alst_addr))
+            # newlist = reduce(lambda ip1, ip2: netaddr.IPSet(ip1) | netaddr.IPSet(ip2), alst_addr_l)
+            log.debug(alst_addrs_ipset)
+            log.debug(alst_addrs)
 
     elif args.cmd == 'add':
         if args.listtype is None:
