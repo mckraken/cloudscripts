@@ -37,6 +37,7 @@ import sys
 import time
 import netaddr
 import logging
+from copy import deepcopy
 
 
 def pprint_dict(item):
@@ -145,12 +146,19 @@ def process_args():
 
     subparser_del = subparser.add_parser(
         'delete', help='delete access list item')
+    del_allow_deny = subparser_del.add_mutually_exclusive_group()
+    del_allow_deny.add_argument(
+        '--deny', dest='listtype', action='store_const', const='DENY',
+        help='Access list is a DENY list (default).')
+    del_allow_deny.add_argument(
+        '--allow', dest='listtype', action='store_const', const='ALLOW',
+        help='Access list is an ALLOW list.')
     alst_ip_or_id = subparser_del.add_mutually_exclusive_group(required=True)
     alst_ip_or_id.add_argument(
         '--listid', metavar="LIST-ID", type=int, nargs='+',
         help='The access list id(s).')
     alst_ip_or_id.add_argument(
-        '--listip', metavar="LIST-IP", nargs='+',
+        '--listip', dest='net', metavar="LIST-IP", nargs='+',
         help='The access list IP address(es).')
 
     subparser.add_parser('delete-all', help='Delete the full access list')
@@ -356,92 +364,143 @@ if __name__ == "__main__":
     for item in mylburl_l:
         lb_alst_url_l.append('/'.join([item, 'accesslist']))
 
-    if args.cmd == 'list':
+    if args.cmd in ['list', 'add', 'delete']:
+
+        # loop through all the LBs specified (or share the IP)
         for lb_alst_url in lb_alst_url_l:
-            # log.info("Access list for LB id: {0}".format(
-            print "Access list for LB id {0}:".format(
-                lb_alst_url.partition('/loadbalancers/')[2].partition('/')[0])
+
             lb_alst = json.loads(
                 upd_lb(requests.get, lb_alst_url, headers=hdrs).content
                 )
-            # pprint_dict(lb_alst)
-            alst_addr_l = [alst['address'] for alst in lb_alst['accessList']]
-            log.debug(lb_alst)
-            log.debug(alst_addr_l)
-            alst_addrs_ipset = netaddr.IPSet(alst_addr_l)
-            alst_addrs = []
-            for alst_addr in alst_addrs_ipset.iter_cidrs():
-                log.debug(alst_addr)
-                alst_addrs.append(str(alst_addr))
-            # newlist = reduce(lambda ip1, ip2: netaddr.IPSet(ip1) | netaddr.IPSet(ip2), alst_addr_l)
-            log.debug(alst_addrs_ipset)
-            log.debug(alst_addrs)
 
-    elif args.cmd == 'add':
-        if args.listtype is None:
-            args.listtype = 'DENY'
-        alst_d = dict()
-        alst_d["accessList"] = []
-        #
-        # Build AccessList dictionary
-        #
-        for item in args.net:
-            item_d = dict()
-            try:
-                item_d["address"] = str(netaddr.IPNetwork(item).cidr)
-                item_d["type"] = args.listtype
-                alst_d["accessList"].append(item_d)
-            except netaddr.core.AddrFormatError:
-                log.error("Invalid IPv4 address or subnet: {0}".format(item))
+            if args.cmd == 'list':
+                print "Access list for LB id {0}:".format(
+                    lb_alst_url.partition(
+                        '/loadbalancers/')[2].partition('/')[0])
+                pprint_dict(lb_alst)
+
+            elif args.cmd == 'add':
+                if args.listtype is None:
+                    args.listtype = 'DENY'
+                log.debug('Current access list: {0}'.format(lb_alst))
+
+                curr_allw_l = [alst['address'] for alst in
+                               lb_alst['accessList'] if
+                               alst['type'] == 'ALLOW']
+                curr_allws_ipset = netaddr.IPSet(curr_allw_l)
+
+                curr_deny_l = [alst['address'] for alst in
+                               lb_alst['accessList'] if
+                               alst['type'] == 'DENY']
+                curr_denys_ipset = netaddr.IPSet(curr_deny_l)
+
+                args_addr_l = []
+                for item in args.net:
+                    try:
+                        args_addr_l.append(str(netaddr.IPNetwork(item).cidr))
+                    except netaddr.core.AddrFormatError:
+                        log.error(
+                            "Invalid IPv4 address or subnet: {0}".format(item))
+                        sys.exit(1)
+                args_addrs_ipset = netaddr.IPSet(args_addr_l)
+
+                if args.listtype == 'DENY':
+                    new_allws_ipset = curr_allws_ipset
+                    new_denys_ipset = deepcopy(curr_denys_ipset)
+                    new_denys_ipset.update(args_addrs_ipset)
+                    del_denys_ipset = deepcopy(curr_denys_ipset)
+                    add_denys_ipset = deepcopy(new_denys_ipset)
+                    for item in curr_denys_ipset.iter_cidrs():
+                        if item in new_denys_ipset.iter_cidrs():
+                            del_denys_ipset.remove(item)
+                            add_denys_ipset.remove(item)
+                    del_allws_ipset = netaddr.IPSet()
+                    add_allws_ipset = netaddr.IPSet()
+                elif args.listtype == 'ALLOW':
+                    new_denys_ipset = curr_denys_ipset
+                    new_allws_ipset = deepcopy(curr_allws_ipset)
+                    new_allws_ipset.update(args_addrs_ipset)
+                    del_allws_ipset = deepcopy(curr_allws_ipset)
+                    add_allws_ipset = deepcopy(new_allws_ipset)
+                    for item in curr_allws_ipset.iter_cidrs():
+                        if item in new_allws_ipset.iter_cidrs():
+                            del_allws_ipset.remove(item)
+                            add_allws_ipset.remove(item)
+                    del_denys_ipset = netaddr.IPSet()
+                    add_denys_ipset = netaddr.IPSet()
+
+                log.debug('--------------------------------------')
+                log.debug('new_allws_ipset: {0}'.format(new_allws_ipset))
+                log.debug('curr_allws_ipset: {0}'.format(curr_allws_ipset))
+                log.debug('new_denys_ipset: {0}'.format(new_denys_ipset))
+                log.debug('curr_denys_ipset: {0}'.format(curr_denys_ipset))
+                log.debug('del_allws_ipset: {0}'.format(del_allws_ipset))
+                log.debug('del_denys_ipset: {0}'.format(del_denys_ipset))
+                log.debug('add_allws_ipset: {0}'.format(add_allws_ipset))
+                log.debug('add_denys_ipset: {0}'.format(add_denys_ipset))
+                log.debug('--------------------------------------')
+                #
+                # Build AccessList dictionary
+                #
+                alst_d = dict()
+                alst_d["accessList"] = []
+                for new_adr in new_denys_ipset.iter_cidrs():
+                    new_alst_item = dict()
+                    new_alst_item['address'] = str(new_adr)
+                    new_alst_item['type'] = 'DENY'
+                    alst_d["accessList"].append(new_alst_item)
+                for new_adr in new_allws_ipset.iter_cidrs():
+                    new_alst_item = dict()
+                    new_alst_item['address'] = str(new_adr)
+                    new_alst_item['type'] = 'ALLOW'
+                    alst_d["accessList"].append(new_alst_item)
+
+                log.debug('New access list: {0}'.format(alst_d))
                 sys.exit(1)
-            log.debug('Access list: {0}'.format(alst_d))
-        for lb_alst_url in lb_alst_url_l:
-            upd_lb(requests.post,
-                   lb_alst_url,
-                   headers=hdrs,
-                   data=alst_d)
 
-    elif args.cmd == 'delete':
-        # The documentation states a maximum of 10 per bulk delete operation
-        chunklength = 10
+                upd_lb(requests.post,
+                       lb_alst_url,
+                       headers=hdrs,
+                       data=alst_d)
 
-        for lb_alst_url in lb_alst_url_l:
-            log.info('Getting current access list for LB {0}...'.format(
-                lb_alst_url.partition('/loadbalancers/')[2].partition('/')[0]))
-            lb_alst = json.loads(
-                upd_lb(requests.get, lb_alst_url, headers=hdrs).content
-                )
-            log.debug(lb_alst)
-            if args.listid:
-                alst_del_l = [str(item["id"]) for item in
-                              lb_alst["accessList"] if
-                              item["id"] in args.listid]
-            elif args.listip:
-                iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
-                                     ip in args.listip]
-                alst_del_l = [str(item["id"]) for item in
-                              lb_alst["accessList"] if
-                              str(netaddr.IPNetwork(item["address"]).cidr) in
-                              iplist_normalized]
+            elif args.cmd == 'delete':
+                # The documentation states a maximum of 10 per
+                # bulk delete operation
+                chunklength = 10
 
-            if alst_del_l:
-                alst_del_chunked = (
-                    lambda l, n=chunklength:
-                    [l[i:i+n] for i in range(0, len(l), n)]
-                    )(alst_del_l)
-                log.debug('Access list to delete: {0}'.format(alst_del_chunked))
-                for item in alst_del_chunked:
-                    params = {"id": item}
-                    log.debug('Query list: {0}'.format(params))
-                    upd_lb(requests.delete,
-                           lb_alst_url,
-                           headers=hdrs,
-                           params=params)
-            else:
-                if args.listip:
-                    log.info('No item found in list: {0}'.format(args.listip))
+                if args.listid:
+                    alst_del_l = [str(item["id"]) for item in
+                                  lb_alst["accessList"] if
+                                  item["id"] in args.listid]
+                elif args.listip:
+                    iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
+                                         ip in args.listip]
+                    alst_del_l = [str(item["id"]) for item in
+                                  lb_alst["accessList"] if
+                                  str(netaddr.IPNetwork(item["address"]).cidr)
+                                  in iplist_normalized]
+
+                if alst_del_l:
+                    alst_del_chunked = (
+                        lambda l, n=chunklength:
+                        [l[i:i+n] for i in range(0, len(l), n)]
+                        )(alst_del_l)
+                    log.debug(
+                        'Access list to delete: {0}'.format(alst_del_chunked))
+                    for item in alst_del_chunked:
+                        params = {"id": item}
+                        log.debug('Query list: {0}'.format(params))
+                        upd_lb(requests.delete,
+                               lb_alst_url,
+                               headers=hdrs,
+                               params=params)
                 else:
-                    log.info('No item found in list: {0}'.format(args.listid))
+                    if args.listip:
+                        log.info(
+                            'No item found in list: {0}'.format(args.listip))
+                    else:
+                        log.info(
+                            'No item found in list: {0}'.format(args.listid))
 
     elif args.cmd == 'delete-all':
         for lb_alst_url in lb_alst_url_l:
