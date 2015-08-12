@@ -221,6 +221,108 @@ def get_servicecat(username, apikey):
     return json.loads(jservicecat)
 
 
+def alst_changes(c_alst, ipnets, chtype='add', ltype='DENY'):
+    log.debug('Current access list: {0}'.format(c_alst))
+
+    curr_allw_l = [alst['address'] for alst in
+                   c_alst['accessList'] if
+                   alst['type'] == 'ALLOW']
+    curr_allws_ipset = netaddr.IPSet(curr_allw_l)
+
+    curr_deny_l = [alst['address'] for alst in
+                   c_alst['accessList'] if
+                   alst['type'] == 'DENY']
+    curr_denys_ipset = netaddr.IPSet(curr_deny_l)
+
+    args_addr_l = []
+    for item in ipnets:
+        try:
+            args_addr_l.append(str(netaddr.IPNetwork(item).cidr))
+        except netaddr.core.AddrFormatError:
+            log.error(
+                "Invalid IPv4 address or subnet: {0}".format(item))
+            sys.exit(1)
+    args_addrs_ipset = netaddr.IPSet(args_addr_l)
+
+    if ltype == 'DENY':
+        new_allws_ipset = curr_allws_ipset
+        new_denys_ipset = deepcopy(curr_denys_ipset)
+        if chtype == 'add':
+            new_denys_ipset.update(args_addrs_ipset)
+            del_denys_ipset = deepcopy(curr_denys_ipset)
+            add_denys_ipset = deepcopy(new_denys_ipset)
+        elif chtype == 'delete':
+            new_denys_ipset = new_denys_ipset - args_addrs_ipset
+            del_denys_ipset = deepcopy(curr_denys_ipset)
+            add_denys_ipset = deepcopy(new_denys_ipset)
+        for item in curr_denys_ipset.iter_cidrs():
+            if item in new_denys_ipset.iter_cidrs():
+                del_denys_ipset.remove(item)
+                add_denys_ipset.remove(item)
+        del_allws_ipset = netaddr.IPSet()
+        add_allws_ipset = netaddr.IPSet()
+    elif ltype == 'ALLOW':
+        new_denys_ipset = curr_denys_ipset
+        new_allws_ipset = deepcopy(curr_allws_ipset)
+        if chtype == 'add':
+            new_allws_ipset.update(args_addrs_ipset)
+            del_allws_ipset = deepcopy(curr_allws_ipset)
+            add_allws_ipset = deepcopy(new_allws_ipset)
+        elif chtype == 'delete':
+            new_allws_ipset = new_allws_ipset - args_addrs_ipset
+            del_allws_ipset = deepcopy(curr_allws_ipset)
+            add_allws_ipset = deepcopy(new_allws_ipset)
+        for item in curr_allws_ipset.iter_cidrs():
+            if item in new_allws_ipset.iter_cidrs():
+                del_allws_ipset.remove(item)
+                add_allws_ipset.remove(item)
+        del_denys_ipset = netaddr.IPSet()
+        add_denys_ipset = netaddr.IPSet()
+
+    log.debug('--------------------------------------')
+    log.debug('new_allws_ipset: {0}'.format(new_allws_ipset))
+    log.debug('curr_allws_ipset: {0}'.format(curr_allws_ipset))
+    log.debug('new_denys_ipset: {0}'.format(new_denys_ipset))
+    log.debug('curr_denys_ipset: {0}'.format(curr_denys_ipset))
+    log.debug('del_allws_ipset: {0}'.format(del_allws_ipset))
+    log.debug('del_denys_ipset: {0}'.format(del_denys_ipset))
+    log.debug('add_allws_ipset: {0}'.format(add_allws_ipset))
+    log.debug('add_denys_ipset: {0}'.format(add_denys_ipset))
+    log.debug('--------------------------------------')
+
+    del_alst_ids = [
+        str(item["id"]) for item in
+        c_alst["accessList"] if
+        netaddr.IPSet([item["address"]]).issubset(del_allws_ipset) and
+        item['type'] == 'ALLOW']
+    del_alst_ids.extend([
+        str(item["id"]) for item in
+        c_alst["accessList"] if
+        netaddr.IPSet([item["address"]]).issubset(del_denys_ipset) and
+        item['type'] == 'DENY'])
+
+    log.debug(del_alst_ids)
+
+    chg_d = dict()
+    chg_d['add'] = []
+    chg_d['delete'] = del_alst_ids
+    for add_alitem in add_allws_ipset.iter_cidrs():
+        al_item = dict()
+        al_item['address'] = str(add_alitem)
+        al_item['type'] = 'ALLOW'
+        chg_d['add'].append(al_item)
+    for add_alitem in add_denys_ipset.iter_cidrs():
+        al_item = dict()
+        al_item['address'] = str(add_alitem)
+        al_item['type'] = 'ALLOW'
+        chg_d['add'].append(al_item)
+
+    log.debug(chg_d)
+    log.debug('--------------------------------------')
+
+    return chg_d
+
+
 if __name__ == "__main__":
 
     args = process_args()
@@ -242,21 +344,21 @@ if __name__ == "__main__":
     brief_format = logging.Formatter(
         '%(message)s')
 
-    if args.quiet == 1:
+    if args.verbose == 1:
         ch.setFormatter(con_format)
-        ch.setLevel(logging.ERROR)
+        ch.setLevel(logging.INFO)
         log.addHandler(ch)
         fh.setLevel(logging.WARNING)
-    elif args.quiet >= 2:
-        fh.setLevel(logging.WARNING)
-    elif args.verbose >= 1:
+    elif args.verbose >= 2:
         ch.setFormatter(con_format)
         ch.setLevel(logging.DEBUG)
         log.addHandler(ch)
         fh.setLevel(logging.DEBUG)
+    elif args.quiet >= 1:
+        fh.setLevel(logging.WARNING)
     else:
         ch.setFormatter(brief_format)
-        ch.setLevel(logging.INFO)
+        ch.setLevel(logging.ERROR)
         log.addHandler(ch)
         fh.setLevel(logging.WARNING)
 
@@ -380,80 +482,17 @@ if __name__ == "__main__":
                 pprint_dict(lb_alst)
 
             elif args.cmd == 'add':
-                if args.listtype is None:
-                    args.listtype = 'DENY'
                 log.debug('Current access list: {0}'.format(lb_alst))
 
-                curr_allw_l = [alst['address'] for alst in
-                               lb_alst['accessList'] if
-                               alst['type'] == 'ALLOW']
-                curr_allws_ipset = netaddr.IPSet(curr_allw_l)
+                changelist_d = alst_changes(
+                    lb_alst, args.net, chtype=args.cmd, ltype=args.listtype)
+                log.debug(changelist_d)
 
-                curr_deny_l = [alst['address'] for alst in
-                               lb_alst['accessList'] if
-                               alst['type'] == 'DENY']
-                curr_denys_ipset = netaddr.IPSet(curr_deny_l)
-
-                args_addr_l = []
-                for item in args.net:
-                    try:
-                        args_addr_l.append(str(netaddr.IPNetwork(item).cidr))
-                    except netaddr.core.AddrFormatError:
-                        log.error(
-                            "Invalid IPv4 address or subnet: {0}".format(item))
-                        sys.exit(1)
-                args_addrs_ipset = netaddr.IPSet(args_addr_l)
-
-                if args.listtype == 'DENY':
-                    new_allws_ipset = curr_allws_ipset
-                    new_denys_ipset = deepcopy(curr_denys_ipset)
-                    new_denys_ipset.update(args_addrs_ipset)
-                    del_denys_ipset = deepcopy(curr_denys_ipset)
-                    add_denys_ipset = deepcopy(new_denys_ipset)
-                    for item in curr_denys_ipset.iter_cidrs():
-                        if item in new_denys_ipset.iter_cidrs():
-                            del_denys_ipset.remove(item)
-                            add_denys_ipset.remove(item)
-                    del_allws_ipset = netaddr.IPSet()
-                    add_allws_ipset = netaddr.IPSet()
-                elif args.listtype == 'ALLOW':
-                    new_denys_ipset = curr_denys_ipset
-                    new_allws_ipset = deepcopy(curr_allws_ipset)
-                    new_allws_ipset.update(args_addrs_ipset)
-                    del_allws_ipset = deepcopy(curr_allws_ipset)
-                    add_allws_ipset = deepcopy(new_allws_ipset)
-                    for item in curr_allws_ipset.iter_cidrs():
-                        if item in new_allws_ipset.iter_cidrs():
-                            del_allws_ipset.remove(item)
-                            add_allws_ipset.remove(item)
-                    del_denys_ipset = netaddr.IPSet()
-                    add_denys_ipset = netaddr.IPSet()
-
-                log.debug('--------------------------------------')
-                log.debug('new_allws_ipset: {0}'.format(new_allws_ipset))
-                log.debug('curr_allws_ipset: {0}'.format(curr_allws_ipset))
-                log.debug('new_denys_ipset: {0}'.format(new_denys_ipset))
-                log.debug('curr_denys_ipset: {0}'.format(curr_denys_ipset))
-                log.debug('del_allws_ipset: {0}'.format(del_allws_ipset))
-                log.debug('del_denys_ipset: {0}'.format(del_denys_ipset))
-                log.debug('add_allws_ipset: {0}'.format(add_allws_ipset))
-                log.debug('add_denys_ipset: {0}'.format(add_denys_ipset))
-                log.debug('--------------------------------------')
                 #
                 # Build AccessList dictionary
                 #
                 alst_d = dict()
                 alst_d["accessList"] = []
-                for new_adr in new_denys_ipset.iter_cidrs():
-                    new_alst_item = dict()
-                    new_alst_item['address'] = str(new_adr)
-                    new_alst_item['type'] = 'DENY'
-                    alst_d["accessList"].append(new_alst_item)
-                for new_adr in new_allws_ipset.iter_cidrs():
-                    new_alst_item = dict()
-                    new_alst_item['address'] = str(new_adr)
-                    new_alst_item['type'] = 'ALLOW'
-                    alst_d["accessList"].append(new_alst_item)
 
                 log.debug('New access list: {0}'.format(alst_d))
                 sys.exit(1)
@@ -467,7 +506,18 @@ if __name__ == "__main__":
                 # The documentation states a maximum of 10 per
                 # bulk delete operation
                 chunklength = 10
+                log.debug('Current access list: {0}'.format(lb_alst))
 
+                changelist_d = alst_changes(
+                    lb_alst, args.net, chtype=args.cmd, ltype=args.listtype)
+                log.debug(changelist_d)
+                alst_d = dict()
+                alst_d["accessList"] = []
+
+                log.debug('New access list: {0}'.format(alst_d))
+                sys.exit(1)
+
+                # ------------------------------
                 if args.listid:
                     alst_del_l = [str(item["id"]) for item in
                                   lb_alst["accessList"] if
