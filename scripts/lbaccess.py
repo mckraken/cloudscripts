@@ -244,7 +244,9 @@ def alst_changes(c_alst, ipnets, chtype='add', ltype='DENY'):
             sys.exit(1)
     args_addrs_ipset = netaddr.IPSet(args_addr_l)
 
-    if ltype == 'DENY':
+    log.debug(ltype)
+    log.debug(chtype)
+    if ltype == 'DENY' or ltype is None:
         new_allws_ipset = curr_allws_ipset
         new_denys_ipset = deepcopy(curr_denys_ipset)
         if chtype == 'add':
@@ -326,6 +328,8 @@ def alst_changes(c_alst, ipnets, chtype='add', ltype='DENY'):
 if __name__ == "__main__":
 
     args = process_args()
+    if args.cmd == 'add':
+        args.listid = None
 
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
@@ -467,8 +471,11 @@ if __name__ == "__main__":
         lb_alst_url_l.append('/'.join([item, 'accesslist']))
 
     if args.cmd in ['list', 'add', 'delete']:
+        # The documentation states a maximum of 10 per
+        # bulk delete operation
+        chunklength = 10
 
-        # loop through all the LBs specified (or share the IP)
+        # loop through all the LBs specified (or that share the IP)
         for lb_alst_url in lb_alst_url_l:
 
             lb_alst = json.loads(
@@ -481,7 +488,9 @@ if __name__ == "__main__":
                         '/loadbalancers/')[2].partition('/')[0])
                 pprint_dict(lb_alst)
 
-            elif args.cmd == 'add':
+            # elif args.listid is None:
+            elif args.cmd == 'add' or (
+                    args.cmd == 'delete' and not args.listid):
                 log.debug('Current access list: {0}'.format(lb_alst))
 
                 changelist_d = alst_changes(
@@ -502,41 +511,28 @@ if __name__ == "__main__":
                        headers=hdrs,
                        data=alst_d)
 
-            elif args.cmd == 'delete':
-                # The documentation states a maximum of 10 per
-                # bulk delete operation
-                chunklength = 10
+            else:  # if args.listid has the Access List ids to delete
                 log.debug('Current access list: {0}'.format(lb_alst))
 
-                changelist_d = alst_changes(
-                    lb_alst, args.net, chtype=args.cmd, ltype=args.listtype)
-                log.debug(changelist_d)
-                alst_d = dict()
-                alst_d["accessList"] = []
-
-                log.debug('New access list: {0}'.format(alst_d))
-                sys.exit(1)
-
                 # ------------------------------
-                if args.listid:
-                    alst_del_l = [str(item["id"]) for item in
-                                  lb_alst["accessList"] if
-                                  item["id"] in args.listid]
-                elif args.listip:
-                    iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
-                                         ip in args.listip]
-                    alst_del_l = [str(item["id"]) for item in
-                                  lb_alst["accessList"] if
-                                  str(netaddr.IPNetwork(item["address"]).cidr)
-                                  in iplist_normalized]
+                alst_del_l = [str(item["id"]) for item in
+                              lb_alst["accessList"] if
+                              item["id"] in args.listid]
+                # elif args.listip:
+                #     iplist_normalized = [str(netaddr.IPNetwork(ip).cidr) for
+                #                          ip in args.listip]
+                #     alst_del_l = [str(item["id"]) for item in
+                #                   lb_alst["accessList"] if
+                #                   str(netaddr.IPNetwork(item["address"]).cidr)
+                #                   in iplist_normalized]
 
                 if alst_del_l:
                     alst_del_chunked = (
                         lambda l, n=chunklength:
                         [l[i:i+n] for i in range(0, len(l), n)]
                         )(alst_del_l)
-                    log.debug(
-                        'Access list to delete: {0}'.format(alst_del_chunked))
+                    log.debug('Access list(s) to delete: {0}'.format(
+                        alst_del_chunked))
                     for item in alst_del_chunked:
                         params = {"id": item}
                         log.debug('Query list: {0}'.format(params))
@@ -545,12 +541,8 @@ if __name__ == "__main__":
                                headers=hdrs,
                                params=params)
                 else:
-                    if args.listip:
-                        log.info(
-                            'No item found in list: {0}'.format(args.listip))
-                    else:
-                        log.info(
-                            'No item found in list: {0}'.format(args.listid))
+                    log.info(
+                        'No item found in list: {0}'.format(args.listid))
 
     elif args.cmd == 'delete-all':
         for lb_alst_url in lb_alst_url_l:
