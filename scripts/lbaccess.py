@@ -62,7 +62,7 @@ def wait_for_status(url, hdrs):
         if lbstatus in ['ACTIVE', 'ERROR']:
             return lbstatus
         else:
-            time.sleep(15)
+            time.sleep(5)
 
 
 def upd_lb(rmethod, url, headers=None, data={}, params={}):
@@ -254,7 +254,7 @@ def alst_changes(c_alst, ipnets, chtype='add', ltype='DENY'):
     for item in ipnets:
         try:
             args_addr_l.append(str(netaddr.IPNetwork(item).cidr))
-        except netaddr.core.AddrFormatError:
+        except (netaddr.core.AddrFormatError, ValueError):
             log.error(
                 "Invalid IPv4 address or subnet: {0}".format(item))
             sys.exit(1)
