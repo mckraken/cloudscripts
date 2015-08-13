@@ -175,13 +175,20 @@ def check_arg_or_env(item, argvar=None, envvar=''):
     elif os.path.isfile(os.path.expanduser("~/.raxcreds")):
         config = ConfigParser.RawConfigParser()
         config.read(os.path.expanduser("~/.raxcreds"))
-        try:
-            return config.get('raxcreds', item)
-        except ConfigParser.NoOptionError:
-            log.error("You need use a flag, environment variable, " +
-                      "or field in ~/.raxcreds. " +
-                      "No setting for '{0}' was found.".format(item))
-            sys.exit(1)
+        item_value = None
+        for section in ['rax loadbalancer', 'raxcreds']:
+            if config.has_section(section):
+                try:
+                    item_value = config.get(section, item)
+                except ConfigParser.NoOptionError:
+                    pass
+            if item_value is None:
+                log.error("You need use a flag, environment variable, " +
+                          "or field in ~/.raxcreds. " +
+                          "No setting for '{0}' was found.".format(item))
+                sys.exit(1)
+            else:
+                return item_value
     else:
         log.error("You need use a flag, environment variable, " +
                   "or field in ~/.raxcreds. " +
