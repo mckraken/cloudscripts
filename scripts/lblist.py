@@ -386,9 +386,14 @@ if __name__ == "__main__":
 
     if args.cmd == 'list':
         for item in lburlbase:
-            print item
             lbinf = json.loads(requests.get(item, headers=hdrs).content)
             pprint_dict(lbinf)
+            if args.query:
+                for lbitem in lbinf["loadBalancers"]:
+                    nodeurl = '/'.join([item, str(lbitem["id"]), 'nodes'])
+                    lbinf_nodes = json.loads(
+                        requests.get(nodeurl, headers=hdrs).content)
+                    pprint_dict(lbinf_nodes)
         # lst_maps(lbinf["loadBalancer"], lbinf_cmap, args.query)
 
     elif args.cmd == 'add':
