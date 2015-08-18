@@ -231,7 +231,7 @@ def get_servicecat(username, apikey):
 
 
 def dcopy_ipset(_ipset):
-    if len(_ipset) == 0:
+    if _ipset.size == 0:
         return netaddr.IPSet()
     else:
         return deepcopy(_ipset)
